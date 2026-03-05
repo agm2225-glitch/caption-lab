@@ -16,10 +16,27 @@ interface Profile {
   created_datetime_utc: string;
 }
 
+const AccessDenied = () => {
+  const router = useRouter();
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'IBM Plex Mono', monospace", color: '#e0e0e0' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⛔</div>
+        <h1 style={{ color: '#f87171', marginBottom: '0.5rem', fontSize: '1.2rem' }}>Access Denied</h1>
+        <p style={{ color: '#555', fontSize: '0.82rem', marginBottom: '1.5rem' }}>Your account does not have superadmin privileges.</p>
+        <button onClick={() => { supabase.auth.signOut(); router.push('/'); }} style={{ background: 'transparent', border: '1px solid #2a2a2a', color: '#888', padding: '0.5rem 1rem', borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', cursor: 'pointer' }}>
+          $ sign_out
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function UsersPage() {
   const router = useRouter();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
@@ -27,7 +44,7 @@ export default function UsersPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push('/'); return; }
       const { data: profile } = await supabase.from('profiles').select('is_superadmin').eq('id', session.user.id).single();
-      if (!profile?.is_superadmin) { router.push('/'); return; }
+      if (!profile?.is_superadmin) { setAccessDenied(true); setLoading(false); return; }
       fetchProfiles();
     };
     init();
@@ -50,6 +67,8 @@ export default function UsersPage() {
     </span>
   );
 
+  if (accessDenied) return <AccessDenied />;
+
   return (
     <AdminShell active="users">
       <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
@@ -69,7 +88,7 @@ export default function UsersPage() {
         <div style={{ color: '#555', fontSize: '0.82rem' }}>Loading users...</div>
       ) : (
         <div style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 8, overflow: 'hidden' }}>
-          <table>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
             <thead>
               <tr style={{ background: '#0d0d0d' }}>
                 {['Name', 'Email', 'Roles', 'Joined'].map(h => (
@@ -79,7 +98,7 @@ export default function UsersPage() {
             </thead>
             <tbody>
               {filtered.map(p => (
-                <tr key={p.id}>
+                <tr key={p.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
                   <td style={{ padding: '0.75rem 1rem', fontSize: '0.82rem', color: '#ccc' }}>
                     {p.first_name || p.last_name ? `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim() : <span style={{ color: '#444' }}>—</span>}
                   </td>

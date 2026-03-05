@@ -15,10 +15,27 @@ interface Caption {
   images: { url: string; image_description: string } | null;
 }
 
+const AccessDenied = () => {
+  const router = useRouter();
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'IBM Plex Mono', monospace", color: '#e0e0e0' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⛔</div>
+        <h1 style={{ color: '#f87171', marginBottom: '0.5rem', fontSize: '1.2rem' }}>Access Denied</h1>
+        <p style={{ color: '#555', fontSize: '0.82rem', marginBottom: '1.5rem' }}>Your account does not have superadmin privileges.</p>
+        <button onClick={() => { supabase.auth.signOut(); router.push('/'); }} style={{ background: 'transparent', border: '1px solid #2a2a2a', color: '#888', padding: '0.5rem 1rem', borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', cursor: 'pointer' }}>
+          $ sign_out
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function CaptionsPage() {
   const router = useRouter();
   const [captions, setCaptions] = useState<Caption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
@@ -26,7 +43,7 @@ export default function CaptionsPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push('/'); return; }
       const { data: profile } = await supabase.from('profiles').select('is_superadmin').eq('id', session.user.id).single();
-      if (!profile?.is_superadmin) { router.push('/'); return; }
+      if (!profile?.is_superadmin) { setAccessDenied(true); setLoading(false); return; }
       fetchCaptions();
     };
     init();
@@ -45,6 +62,8 @@ export default function CaptionsPage() {
   const filtered = captions.filter(c =>
     c.content?.toLowerCase().includes(search.toLowerCase())
   );
+
+  if (accessDenied) return <AccessDenied />;
 
   return (
     <AdminShell active="captions">
@@ -65,7 +84,7 @@ export default function CaptionsPage() {
         <div style={{ color: '#555', fontSize: '0.82rem' }}>Loading captions...</div>
       ) : (
         <div style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 8, overflow: 'hidden' }}>
-          <table>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
             <thead>
               <tr style={{ background: '#0d0d0d' }}>
                 {['Image', 'Caption', 'Flags', 'Likes', 'Created'].map(h => (
@@ -75,7 +94,7 @@ export default function CaptionsPage() {
             </thead>
             <tbody>
               {filtered.map(c => (
-                <tr key={c.id}>
+                <tr key={c.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
                   <td style={{ padding: '0.75rem 1rem' }}>
                     {c.images?.url
                       ? <img src={c.images.url} alt="" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 3, border: '1px solid #2a2a2a' }} />

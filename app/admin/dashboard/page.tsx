@@ -23,10 +23,27 @@ interface Stats {
   funniest: FunniestCaption[];
 }
 
+const AccessDenied = () => {
+  const router = useRouter();
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'IBM Plex Mono', monospace", color: '#e0e0e0' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⛔</div>
+        <h1 style={{ color: '#f87171', marginBottom: '0.5rem', fontSize: '1.2rem' }}>Access Denied</h1>
+        <p style={{ color: '#555', fontSize: '0.82rem', marginBottom: '1.5rem' }}>Your account does not have superadmin privileges.</p>
+        <button onClick={() => { supabase.auth.signOut(); router.push('/'); }} style={{ background: 'transparent', border: '1px solid #2a2a2a', color: '#888', padding: '0.5rem 1rem', borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', cursor: 'pointer' }}>
+          $ sign_out
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
     const init = async () => {
@@ -39,7 +56,7 @@ export default function Dashboard() {
         .eq('id', session.user.id)
         .single();
 
-      if (!profile?.is_superadmin) { router.push('/'); return; }
+      if (!profile?.is_superadmin) { setAccessDenied(true); setLoading(false); return; }
 
       await fetchStats();
     };
@@ -63,7 +80,6 @@ export default function Dashboard() {
         supabase.from('captions').select('id, content, image_id, images(id, url, image_description)').eq('is_public', true),
       ]);
 
-      // Aggregate votes per caption
       const voteMap: Record<string, { up: number; down: number }> = {};
       votes?.forEach(v => {
         if (!voteMap[v.caption_id]) voteMap[v.caption_id] = { up: 0, down: 0 };
@@ -71,7 +87,6 @@ export default function Dashboard() {
         else voteMap[v.caption_id].down += Math.abs(v.vote_value);
       });
 
-      // Build funniest list (net score = upvotes - downvotes)
       const funniest: FunniestCaption[] = (captionData || [])
         .map((c: any) => {
           const v = voteMap[c.id] || { up: 0, down: 0 };
@@ -100,6 +115,8 @@ export default function Dashboard() {
     }
   };
 
+  if (accessDenied) return <AccessDenied />;
+
   if (loading) return (
     <AdminShell active="dashboard">
       <div style={{ color: '#555', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.82rem' }}>Loading stats...</div>
@@ -113,7 +130,6 @@ export default function Dashboard() {
         <p style={{ fontSize: '0.78rem', color: '#555' }}>System overview and funniest caption leaderboard</p>
       </div>
 
-      {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '2.5rem' }}>
         {[
           { label: 'Users', value: stats?.totalUsers, color: '#4ade80' },
@@ -128,7 +144,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Funniest captions leaderboard */}
       <div style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 8, overflow: 'hidden' }}>
         <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <span style={{ color: '#febc2e', fontSize: '0.82rem', fontFamily: "'IBM Plex Mono', monospace" }}>★</span>

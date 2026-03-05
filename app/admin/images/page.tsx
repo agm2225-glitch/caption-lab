@@ -17,10 +17,27 @@ interface Image {
 
 const emptyForm = { url: '', image_description: '', additional_context: '', is_public: true, is_common_use: false };
 
+const AccessDenied = () => {
+  const router = useRouter();
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'IBM Plex Mono', monospace", color: '#e0e0e0' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⛔</div>
+        <h1 style={{ color: '#f87171', marginBottom: '0.5rem', fontSize: '1.2rem' }}>Access Denied</h1>
+        <p style={{ color: '#555', fontSize: '0.82rem', marginBottom: '1.5rem' }}>Your account does not have superadmin privileges.</p>
+        <button onClick={() => { supabase.auth.signOut(); router.push('/'); }} style={{ background: 'transparent', border: '1px solid #2a2a2a', color: '#888', padding: '0.5rem 1rem', borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', cursor: 'pointer' }}>
+          $ sign_out
+        </button>
+      </div>
+    </div>
+  );
+};
+
 export default function ImagesPage() {
   const router = useRouter();
   const [images, setImages] = useState<Image[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -32,7 +49,7 @@ export default function ImagesPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push('/'); return; }
       const { data: profile } = await supabase.from('profiles').select('is_superadmin').eq('id', session.user.id).single();
-      if (!profile?.is_superadmin) { router.push('/'); return; }
+      if (!profile?.is_superadmin) { setAccessDenied(true); setLoading(false); return; }
       fetchImages();
     };
     init();
@@ -81,6 +98,8 @@ export default function ImagesPage() {
 
   const inputStyle = { background: '#0a0a0a', border: '1px solid #2a2a2a', borderRadius: 4, padding: '0.5rem 0.75rem', color: '#e0e0e0', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', width: '100%' };
 
+  if (accessDenied) return <AccessDenied />;
+
   return (
     <AdminShell active="images">
       <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -89,17 +108,15 @@ export default function ImagesPage() {
           <p style={{ fontSize: '0.78rem', color: '#555' }}>{images.length} images · CREATE / READ / UPDATE / DELETE</p>
         </div>
         <button
-          className="action-btn"
           onClick={() => { setForm(emptyForm); setEditingId(null); setShowForm(!showForm); }}
-          style={{ background: '#4ade8022', border: '1px solid #4ade8044', color: '#4ade80', padding: '0.5rem 1rem', borderRadius: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem' }}
+          style={{ background: '#4ade8022', border: '1px solid #4ade8044', color: '#4ade80', padding: '0.5rem 1rem', borderRadius: 6, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', cursor: 'pointer' }}
         >
           {showForm ? '✕ cancel' : '+ new image'}
         </button>
       </div>
 
-      {/* Form */}
       {showForm && (
-        <div className="fade-up" style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 8, padding: '1.25rem', marginBottom: '1.5rem' }}>
+        <div style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 8, padding: '1.25rem', marginBottom: '1.5rem' }}>
           <div style={{ fontSize: '0.72rem', color: '#555', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             {editingId ? '// editing image' : '// new image'}
           </div>
@@ -127,22 +144,20 @@ export default function ImagesPage() {
           </div>
           {error && <div style={{ fontSize: '0.75rem', color: '#f87171', marginBottom: '0.75rem' }}>{error}</div>}
           <button
-            className="action-btn"
             onClick={handleSave}
             disabled={saving || !form.url}
-            style={{ background: '#4ade8022', border: '1px solid #4ade8044', color: '#4ade80', padding: '0.5rem 1.25rem', borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', opacity: saving || !form.url ? 0.4 : 1 }}
+            style={{ background: '#4ade8022', border: '1px solid #4ade8044', color: '#4ade80', padding: '0.5rem 1.25rem', borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', cursor: saving || !form.url ? 'not-allowed' : 'pointer', opacity: saving || !form.url ? 0.4 : 1 }}
           >
             {saving ? 'saving...' : editingId ? '$ update' : '$ insert'}
           </button>
         </div>
       )}
 
-      {/* Table */}
       {loading ? (
         <div style={{ color: '#555', fontSize: '0.82rem' }}>Loading images...</div>
       ) : (
         <div style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 8, overflow: 'hidden' }}>
-          <table>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
             <thead>
               <tr style={{ background: '#0d0d0d' }}>
                 {['Preview', 'Description', 'Flags', 'Created', 'Actions'].map(h => (
@@ -152,7 +167,7 @@ export default function ImagesPage() {
             </thead>
             <tbody>
               {images.map(img => (
-                <tr key={img.id}>
+                <tr key={img.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
                   <td style={{ padding: '0.75rem 1rem' }}>
                     {img.url ? <img src={img.url} alt="" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 3, border: '1px solid #2a2a2a' }} /> : <div style={{ width: 48, height: 36, background: '#1a1a1a', borderRadius: 3 }} />}
                   </td>
@@ -170,8 +185,8 @@ export default function ImagesPage() {
                   </td>
                   <td style={{ padding: '0.75rem 1rem' }}>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button className="action-btn" onClick={() => handleEdit(img)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', background: 'transparent', border: '1px solid #2a2a2a', color: '#888', borderRadius: 3, fontFamily: "'IBM Plex Mono', monospace" }}>edit</button>
-                      <button className="action-btn delete-btn" onClick={() => handleDelete(img.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', background: 'transparent', border: '1px solid #2a2a2a', color: '#888', borderRadius: 3, fontFamily: "'IBM Plex Mono', monospace" }}>delete</button>
+                      <button onClick={() => handleEdit(img)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', background: 'transparent', border: '1px solid #2a2a2a', color: '#888', borderRadius: 3, fontFamily: "'IBM Plex Mono', monospace", cursor: 'pointer' }}>edit</button>
+                      <button onClick={() => handleDelete(img.id)} style={{ fontSize: '0.7rem', padding: '0.25rem 0.6rem', background: 'transparent', border: '1px solid #2a2a2a', color: '#888', borderRadius: 3, fontFamily: "'IBM Plex Mono', monospace", cursor: 'pointer' }}>delete</button>
                     </div>
                   </td>
                 </tr>
