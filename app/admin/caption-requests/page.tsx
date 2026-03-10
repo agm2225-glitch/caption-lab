@@ -40,7 +40,7 @@ export default function CaptionRequestsPage() {
               <tr key={r.id} style={{borderBottom:'1px solid #1a1a1a'}}>
                 <td style={{padding:'0.75rem 1rem',fontSize:'0.78rem',color:'#febc2e'}}>{r.id}</td>
                 <td style={{padding:'0.75rem 1rem'}}>{r.images?.url?<img src={r.images.url} alt="" style={{width:48,height:36,objectFit:'cover',borderRadius:3,border:'1px solid #2a2a2a'}} />:<div style={{width:48,height:36,background:'#1a1a1a',borderRadius:3}} />}</td>
-                <td style={{padding:'0.75rem 1rem',fontSize:'0.72rem',color:'#666',fontFamily:"'IBM Plex Mono',monospace'}}>{r.profile_id?.slice(0,12)}...</td>
+                <td style={{padding:'0.75rem 1rem',fontSize:'0.72rem',color:'#666',fontFamily:"'IBM Plex Mono',monospace"}}>{r.profile_id?.slice(0,12)}...</td>
                 <td style={{padding:'0.75rem 1rem',fontSize:'0.72rem',color:'#555'}}>{r.created_datetime_utc?new Date(r.created_datetime_utc).toLocaleDateString():'—'}</td>
               </tr>
             ))}</tbody>
