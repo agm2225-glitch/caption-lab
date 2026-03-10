@@ -3,11 +3,48 @@
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
-const NAV = [
-  { key: 'dashboard', label: '~/dashboard', href: '/admin/dashboard' },
-  { key: 'users', label: '~/users', href: '/admin/users' },
-  { key: 'images', label: '~/images', href: '/admin/images' },
-  { key: 'captions', label: '~/captions', href: '/admin/captions' },
+const NAV_GROUPS = [
+  {
+    label: 'CORE',
+    items: [
+      { key: 'dashboard', label: '~/dashboard', href: '/admin/dashboard' },
+      { key: 'users', label: '~/users', href: '/admin/users' },
+    ],
+  },
+  {
+    label: 'CONTENT',
+    items: [
+      { key: 'images', label: '~/images', href: '/admin/images' },
+      { key: 'captions', label: '~/captions', href: '/admin/captions' },
+      { key: 'caption-requests', label: '~/caption-requests', href: '/admin/caption-requests' },
+      { key: 'caption-examples', label: '~/caption-examples', href: '/admin/caption-examples' },
+      { key: 'terms', label: '~/terms', href: '/admin/terms' },
+    ],
+  },
+  {
+    label: 'HUMOR',
+    items: [
+      { key: 'humor-flavors', label: '~/humor-flavors', href: '/admin/humor-flavors' },
+      { key: 'humor-flavor-steps', label: '~/humor-flavor-steps', href: '/admin/humor-flavor-steps' },
+      { key: 'humor-mix', label: '~/humor-mix', href: '/admin/humor-mix' },
+    ],
+  },
+  {
+    label: 'LLM',
+    items: [
+      { key: 'llm-providers', label: '~/llm-providers', href: '/admin/llm-providers' },
+      { key: 'llm-models', label: '~/llm-models', href: '/admin/llm-models' },
+      { key: 'llm-prompt-chains', label: '~/llm-prompt-chains', href: '/admin/llm-prompt-chains' },
+      { key: 'llm-responses', label: '~/llm-responses', href: '/admin/llm-responses' },
+    ],
+  },
+  {
+    label: 'ACCESS',
+    items: [
+      { key: 'allowed-domains', label: '~/allowed-domains', href: '/admin/allowed-domains' },
+      { key: 'whitelisted-emails', label: '~/whitelisted-emails', href: '/admin/whitelisted-emails' },
+    ],
+  },
 ];
 
 export default function AdminShell({ children, active }: { children: React.ReactNode; active: string }) {
@@ -27,36 +64,37 @@ export default function AdminShell({ children, active }: { children: React.React
         .nav-item { transition: all 0.15s; }
         .nav-item:hover { background: #1a1a1a !important; color: #fff !important; }
         .nav-item.active { background: #1a1a1a !important; color: #4ade80 !important; border-left: 2px solid #4ade80 !important; }
-        .action-btn { transition: all 0.15s; cursor: pointer; }
-        .action-btn:hover { opacity: 0.8; }
-        .delete-btn:hover { background: #7f1d1d !important; border-color: #ef4444 !important; color: #ef4444 !important; }
-        input, textarea { transition: border-color 0.15s; }
-        input:focus, textarea:focus { outline: none; border-color: #4ade80 !important; }
+        input, textarea, select { transition: border-color 0.15s; }
+        input:focus, textarea:focus, select:focus { outline: none; border-color: #4ade80 !important; }
         table { border-collapse: collapse; width: 100%; }
-        tr { border-bottom: 1px solid #1a1a1a; transition: background 0.1s; }
-        tr:hover { background: #0f0f0f; }
+        tr:hover td { background: #0f0f0f; }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         .fade-up { animation: fadeUp 0.3s ease both; }
       `}</style>
       <div style={{ display: 'flex', minHeight: '100vh', background: '#0a0a0a', fontFamily: "'IBM Plex Mono', monospace", color: '#e0e0e0' }}>
 
         {/* Sidebar */}
-        <aside style={{ width: 220, background: '#0d0d0d', borderRight: '1px solid #1a1a1a', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <aside style={{ width: 220, background: '#0d0d0d', borderRight: '1px solid #1a1a1a', display: 'flex', flexDirection: 'column', flexShrink: 0, overflowY: 'auto' }}>
           <div style={{ padding: '1.25rem 1rem', borderBottom: '1px solid #1a1a1a' }}>
             <div style={{ fontSize: '0.7rem', color: '#555', marginBottom: '0.2rem' }}>ADMIN PANEL</div>
             <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#fff' }}>Kinda<span style={{ color: '#4ade80' }}>Crackd</span></div>
           </div>
 
-          <nav style={{ flex: 1, padding: '0.75rem 0' }}>
-            {NAV.map(item => (
-              <a
-                key={item.key}
-                href={item.href}
-                className={`nav-item${active === item.key ? ' active' : ''}`}
-                style={{ display: 'block', padding: '0.6rem 1rem', fontSize: '0.78rem', color: '#555', textDecoration: 'none', borderLeft: '2px solid transparent' }}
-              >
-                {item.label}
-              </a>
+          <nav style={{ flex: 1, padding: '0.5rem 0' }}>
+            {NAV_GROUPS.map(group => (
+              <div key={group.label} style={{ marginBottom: '0.25rem' }}>
+                <div style={{ padding: '0.5rem 1rem 0.25rem', fontSize: '0.6rem', color: '#333', letterSpacing: '0.12em' }}>{group.label}</div>
+                {group.items.map(item => (
+                  <a
+                    key={item.key}
+                    href={item.href}
+                    className={`nav-item${active === item.key ? ' active' : ''}`}
+                    style={{ display: 'block', padding: '0.45rem 1rem', fontSize: '0.72rem', color: '#555', textDecoration: 'none', borderLeft: '2px solid transparent' }}
+                  >
+                    {item.label}
+                  </a>
+                ))}
+              </div>
             ))}
           </nav>
 
