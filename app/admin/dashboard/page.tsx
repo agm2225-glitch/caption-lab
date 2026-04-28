@@ -4,24 +4,12 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import AdminShell from '../AdminShell';
-import {
-  Chart as ChartJS,
-  CategoryScale, LinearScale, BarElement, LineElement,
-  PointElement, ArcElement, Title, Tooltip, Legend, Filler,
-} from 'chart.js';
-import { Bar, Line, Doughnut } from 'react-chartjs-2';
 
-ChartJS.register(
-  CategoryScale, LinearScale, BarElement, LineElement,
-  PointElement, ArcElement, Title, Tooltip, Legend, Filler
-);
-
-const BLUE   = '#378ADD';
-const GREEN  = '#639922';
-const AMBER  = '#BA7517';
-const CORAL  = '#D85A30';
-const GRAY   = '#888780';
-const BLUE_L = '#B5D4F480';
+const BLUE  = '#378ADD';
+const GREEN = '#639922';
+const AMBER = '#BA7517';
+const CORAL = '#D85A30';
+const GRAY  = '#888780';
 
 interface CaptionStat {
   caption_id: string;
@@ -77,6 +65,12 @@ const Pill = ({ children, color }: { children: React.ReactNode; color: string })
   </span>
 );
 
+const Bar = ({ value, max, color }: { value: number; max: number; color: string }) => (
+  <div style={{ height: 4, background: '#1e1e1e', borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
+    <div style={{ height: '100%', width: `${Math.max(2, (value / max) * 100)}%`, background: color, borderRadius: 2, transition: 'width 0.6s ease' }} />
+  </div>
+);
+
 const SectionHeader = ({ title, subtitle }: { title: string; subtitle?: string }) => (
   <div style={{ marginBottom: '1rem' }}>
     <h2 style={{ fontSize: '0.82rem', fontWeight: 600, color: '#e0e0e0', fontFamily: "'IBM Plex Mono', monospace", margin: 0, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{title}</h2>
@@ -107,7 +101,7 @@ const KpiCard = ({ label, value, sub, color }: { label: string; value: string | 
   </Card>
 );
 
-const Legend = ({ items }: { items: { color: string; label: string }[] }) => (
+const ChartLegend = ({ items }: { items: { color: string; label: string }[] }) => (
   <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
     {items.map(i => (
       <div key={i.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.7rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace" }}>
@@ -139,26 +133,104 @@ const CaptionRow = ({ item, idx, scoreLabel, scoreColor, scoreValue }: {
   </div>
 );
 
-const chartDefaults = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: { legend: { display: false } },
-  scales: {
-    x: { ticks: { font: { size: 11 }, color: GRAY }, grid: { display: false } },
-    y: { ticks: { font: { size: 11 }, color: GRAY }, grid: { color: 'rgba(128,128,128,0.1)' } },
-  },
-};
-
-const stackedScales = {
-  x: { stacked: true, ticks: { font: { size: 11 }, color: GRAY }, grid: { display: false } },
-  y: { stacked: true, ticks: { font: { size: 11 }, color: GRAY }, grid: { color: 'rgba(128,128,128,0.1)' } },
-};
+function useChart(
+  ref: React.RefObject<HTMLCanvasElement>,
+  type: string,
+  data: any,
+  options: any,
+  deps: any[]
+) {
+  useEffect(() => {
+    if (!ref.current) return;
+    let chart: any;
+    import('chart.js/auto').then(({ default: Chart }) => {
+      if (ref.current) {
+        chart = new Chart(ref.current, { type, data, options } as any);
+      }
+    });
+    return () => { chart?.destroy(); };
+  }, deps);
+}
 
 export default function CaptionStats() {
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'rankings' | 'images' | 'trends'>('overview');
+
+  const refHour    = useRef<HTMLCanvasElement>(null);
+  const refDow     = useRef<HTMLCanvasElement>(null);
+  const refPosRate = useRef<HTMLCanvasElement>(null);
+  const refSplit   = useRef<HTMLCanvasElement>(null);
+  const refDist    = useRef<HTMLCanvasElement>(null);
+  const refDaily   = useRef<HTMLCanvasElement>(null);
+
+  const scaleBase = {
+    x: { ticks: { font: { size: 11 }, color: GRAY }, grid: { display: false } },
+    y: { ticks: { font: { size: 11 }, color: GRAY }, grid: { color: 'rgba(128,128,128,0.1)' } },
+  };
+  const scaleStacked = {
+    x: { stacked: true, ticks: { font: { size: 11 }, color: GRAY, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
+    y: { stacked: true, ticks: { font: { size: 11 }, color: GRAY }, grid: { color: 'rgba(128,128,128,0.1)' } },
+  };
+  const baseOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
+
+  const hourLabels = Array.from({ length: 24 }, (_, i) => fmt12(i));
+  const dowLabels  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  useChart(refHour, 'bar',
+    { labels: hourLabels, datasets: [
+      { label: 'Upvotes',   data: stats?.hourUps   ?? [], backgroundColor: BLUE,  stack: 'v', borderRadius: 2 },
+      { label: 'Downvotes', data: stats?.hourDowns  ?? [], backgroundColor: CORAL, stack: 'v', borderRadius: 2 },
+    ]},
+    { ...baseOpts, scales: scaleStacked },
+    [stats?.hourUps, activeTab]
+  );
+
+  useChart(refDow, 'bar',
+    { labels: dowLabels, datasets: [
+      { label: 'Upvotes',   data: stats?.dowUps   ?? [], backgroundColor: BLUE,  stack: 'v', borderRadius: 2 },
+      { label: 'Downvotes', data: stats?.dowDowns  ?? [], backgroundColor: CORAL, stack: 'v', borderRadius: 2 },
+    ]},
+    { ...baseOpts, scales: scaleStacked },
+    [stats?.dowUps, activeTab]
+  );
+
+  useChart(refPosRate, 'line',
+    { labels: hourLabels, datasets: [{
+      label: '% upvotes', data: stats?.posRateByHour ?? [],
+      borderColor: AMBER, backgroundColor: AMBER + '22',
+      fill: true, tension: 0.4, pointRadius: 3, pointBackgroundColor: AMBER, spanGaps: true,
+    }]},
+    { ...baseOpts, scales: { ...scaleBase, y: { ...scaleBase.y, min: 0, max: 100, ticks: { ...scaleBase.y.ticks, callback: (v: any) => v + '%' } } } },
+    [stats?.posRateByHour, activeTab]
+  );
+
+  useChart(refSplit, 'doughnut',
+    { labels: ['Upvotes', 'Downvotes'], datasets: [{
+      data: [stats?.totalUpvotes ?? 0, stats?.totalDownvotes ?? 0],
+      backgroundColor: [GREEN, CORAL], borderWidth: 0,
+    }]},
+    { ...baseOpts, cutout: '68%' },
+    [stats?.totalUpvotes, activeTab]
+  );
+
+  useChart(refDist, 'bar',
+    { labels: stats?.distLabels ?? [], datasets: [{
+      label: 'Captions', data: stats?.distCounts ?? [], backgroundColor: BLUE, borderRadius: 3,
+    }]},
+    { ...baseOpts, scales: scaleBase },
+    [stats?.distCounts, activeTab]
+  );
+
+  useChart(refDaily, 'bar',
+    { labels: stats?.last30Dates.map(d => d.slice(5)) ?? [], datasets: [
+      { label: 'Upvotes',   data: stats?.last30Ups   ?? [], backgroundColor: BLUE,  stack: 'v' },
+      { label: 'Downvotes', data: stats?.last30Downs  ?? [], backgroundColor: CORAL, stack: 'v' },
+    ]},
+    { ...baseOpts, scales: { ...scaleStacked, x: { ...scaleStacked.x, maxTicksLimit: 10 } } },
+    [stats?.last30Ups, activeTab]
+  );
 
   useEffect(() => {
     const init = async () => {
@@ -179,14 +251,13 @@ export default function CaptionStats() {
         supabase.from('captions').select('id, content, image_id, is_public, created_at, images(id, url, image_description)').eq('is_public', true).limit(100000),
       ]);
 
-      // ── Vote map ─────────────────────────────────────────────────────────
       const voteMap: Record<string, { up: number; down: number }> = {};
       let totalUp = 0, totalDown = 0;
       const hourBuckets = Array(24).fill(0);
-      const hourUps    = Array(24).fill(0);
-      const hourDowns  = Array(24).fill(0);
-      const dowBuckets = Array(7).fill(0);
-      const dowUps     = Array(7).fill(0);
+      const hourUps     = Array(24).fill(0);
+      const hourDowns   = Array(24).fill(0);
+      const dowBuckets  = Array(7).fill(0);
+      const dowUps      = Array(7).fill(0);
       const last30: Record<string, { u: number; d: number }> = {};
       const captionVoteCounts: Record<string, number> = {};
 
@@ -213,7 +284,6 @@ export default function CaptionStats() {
         captionVoteCounts[v.caption_id] = (captionVoteCounts[v.caption_id] || 0) + 1;
       });
 
-      // ── Caption stats ────────────────────────────────────────────────────
       const captionStats: CaptionStat[] = (captions || []).map((c: any) => {
         const v = voteMap[c.id] || { up: 0, down: 0 };
         const total = v.up + v.down;
@@ -236,41 +306,30 @@ export default function CaptionStats() {
       const votesPerCaption = Object.values(captionVoteCounts);
       const maxVPC = votesPerCaption.length ? Math.max(...votesPerCaption) : 0;
 
-      // ── Rating distribution ──────────────────────────────────────────────
       const ratingDistribution = [
-        { label: 'Loved (net ≥ 10)',    min: 10,       max: Infinity, color: '#4ade80' },
-        { label: 'Liked (net 1–9)',     min: 1,        max: 9,        color: '#86efac' },
-        { label: 'Mixed (net 0)',       min: 0,        max: 0,        color: '#facc15' },
-        { label: 'Disliked (net −1–−9)',min: -9,       max: -1,       color: '#fb923c' },
-        { label: 'Hated (net ≤ −10)',   min: -Infinity,max: -10,      color: '#f87171' },
+        { label: 'Loved (net ≥ 10)',     min: 10,        max: Infinity, color: '#4ade80' },
+        { label: 'Liked (net 1–9)',       min: 1,         max: 9,        color: '#86efac' },
+        { label: 'Mixed (net 0)',         min: 0,         max: 0,        color: '#facc15' },
+        { label: 'Disliked (net −1–−9)', min: -9,        max: -1,       color: '#fb923c' },
+        { label: 'Hated (net ≤ −10)',    min: -Infinity, max: -10,      color: '#f87171' },
       ].map(b => ({ label: b.label, color: b.color, count: withVotes.filter(c => c.net >= b.min && c.net <= b.max).length }));
 
-      // ── Last 30 days ─────────────────────────────────────────────────────
       const last30dates: string[] = [];
-      const d = new Date(); d.setDate(d.getDate() - 29);
+      const cursor = new Date(); cursor.setDate(cursor.getDate() - 29);
       for (let i = 0; i < 30; i++) {
-        last30dates.push(d.toISOString().split('T')[0]);
-        d.setDate(d.getDate() + 1);
+        last30dates.push(cursor.toISOString().split('T')[0]);
+        cursor.setDate(cursor.getDate() + 1);
       }
-      const last30Ups   = last30dates.map(dt => last30[dt]?.u ?? 0);
-      const last30Downs = last30dates.map(dt => last30[dt]?.d ?? 0);
 
-      // ── Votes per caption distribution ───────────────────────────────────
       const distMap: Record<string, number> = { '1': 0, '2–5': 0, '6–10': 0, '11–20': 0, '20+': 0 };
       votesPerCaption.forEach(n => {
-        if (n === 1) distMap['1']++;
-        else if (n <= 5)  distMap['2–5']++;
-        else if (n <= 10) distMap['6–10']++;
-        else if (n <= 20) distMap['11–20']++;
-        else              distMap['20+']++;
+        if (n === 1)       distMap['1']++;
+        else if (n <= 5)   distMap['2–5']++;
+        else if (n <= 10)  distMap['6–10']++;
+        else if (n <= 20)  distMap['11–20']++;
+        else               distMap['20+']++;
       });
 
-      // ── Positivity rate by hour ──────────────────────────────────────────
-      const posRateByHour = hourUps.map((u, i) =>
-        hourBuckets[i] > 0 ? Math.round((u / hourBuckets[i]) * 100) : null
-      );
-
-      // ── Top images ───────────────────────────────────────────────────────
       const imageMap: Record<string, { url: string; desc: string; nets: number[]; count: number }> = {};
       captionStats.forEach(c => {
         const cap = (captions || []).find((x: any) => x.id === c.caption_id);
@@ -280,9 +339,6 @@ export default function CaptionStats() {
         imageMap[imgId].nets.push(c.net);
         imageMap[imgId].count++;
       });
-      const topImages = Object.values(imageMap)
-        .map(v => ({ image_url: v.url, image_description: v.desc, caption_count: v.count, avg_net: v.nets.length ? v.nets.reduce((a, b) => a + b, 0) / v.nets.length : 0 }))
-        .sort((a, b) => b.avg_net - a.avg_net).slice(0, 8);
 
       setStats({
         totalCaptions: captions?.length ?? 0,
@@ -297,21 +353,23 @@ export default function CaptionStats() {
         peakHour,
         peakHourCount: hourBuckets[peakHour],
         maxVotesOnCaption: maxVPC,
-        topFunniest:      [...captionStats].sort((a, b) => b.net - a.net).slice(0, 10),
-        mostControversial:[...captionStats].sort((a, b) => b.controversy_score - a.controversy_score).slice(0, 10),
-        mostVoted:        [...captionStats].sort((a, b) => b.total_votes - a.total_votes).slice(0, 10),
-        worstRated:       [...captionStats].sort((a, b) => a.net - b.net).slice(0, 10),
+        topFunniest:       [...captionStats].sort((a, b) => b.net - a.net).slice(0, 10),
+        mostControversial: [...captionStats].sort((a, b) => b.controversy_score - a.controversy_score).slice(0, 10),
+        mostVoted:         [...captionStats].sort((a, b) => b.total_votes - a.total_votes).slice(0, 10),
+        worstRated:        [...captionStats].sort((a, b) => a.net - b.net).slice(0, 10),
         ratingDistribution,
         hourBuckets, hourUps, hourDowns,
-        dowBuckets,
-        dowUps,
+        dowBuckets, dowUps,
         dowDowns: dowBuckets.map((t, i) => t - dowUps[i]),
         last30Dates: last30dates,
-        last30Ups, last30Downs,
+        last30Ups:   last30dates.map(dt => last30[dt]?.u ?? 0),
+        last30Downs: last30dates.map(dt => last30[dt]?.d ?? 0),
         distLabels: Object.keys(distMap),
         distCounts: Object.values(distMap),
-        posRateByHour,
-        topImages,
+        posRateByHour: hourUps.map((u, i) => hourBuckets[i] > 0 ? Math.round((u / hourBuckets[i]) * 100) : null),
+        topImages: Object.values(imageMap)
+          .map(v => ({ image_url: v.url, image_description: v.desc, caption_count: v.count, avg_net: v.nets.length ? v.nets.reduce((a, b) => a + b, 0) / v.nets.length : 0 }))
+          .sort((a, b) => b.avg_net - a.avg_net).slice(0, 8),
       });
     } finally {
       setLoading(false);
@@ -319,10 +377,10 @@ export default function CaptionStats() {
   };
 
   const tabs = [
-    { key: 'overview',  label: 'Overview' },
-    { key: 'rankings',  label: 'Rankings' },
-    { key: 'images',    label: 'Images' },
-    { key: 'trends',    label: 'Trends' },
+    { key: 'overview', label: 'Overview' },
+    { key: 'rankings', label: 'Rankings' },
+    { key: 'images',   label: 'Images' },
+    { key: 'trends',   label: 'Trends' },
   ] as const;
 
   if (loading) return (
@@ -331,9 +389,7 @@ export default function CaptionStats() {
     </AdminShell>
   );
 
-  const hourLabels = Array.from({ length: 24 }, (_, i) => fmt12(i));
-  const dowLabels  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const maxDist    = Math.max(...(stats?.ratingDistribution.map(d => d.count) ?? [1]), 1);
+  const maxDist = Math.max(...(stats?.ratingDistribution.map(d => d.count) ?? [1]), 1);
 
   return (
     <AdminShell active="caption-stats">
@@ -366,69 +422,44 @@ export default function CaptionStats() {
       {activeTab === 'overview' && stats && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-          {/* KPIs */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-            <KpiCard label="Public Captions"  value={stats.totalCaptions}    color="#f472b6" sub={`${stats.captionsWithVotes} have votes`} />
-            <KpiCard label="Total Votes Cast"  value={stats.totalVotes}       color={BLUE}    sub={`${stats.avgVotesPerCaption} avg per caption`} />
-            <KpiCard label="Positivity Rate"   value={`${stats.positivityRate}%`} color={GREEN} sub={`${stats.totalUpvotes.toLocaleString()} up / ${stats.totalDownvotes.toLocaleString()} down`} />
-            <KpiCard label="Peak Hour"         value={fmt12(stats.peakHour)}  color={AMBER}   sub={`${stats.peakHourCount.toLocaleString()} votes that hour`} />
+            <KpiCard label="Public Captions"  value={stats.totalCaptions}         color="#f472b6" sub={`${stats.captionsWithVotes} have votes`} />
+            <KpiCard label="Total Votes Cast"  value={stats.totalVotes}            color={BLUE}    sub={`${stats.avgVotesPerCaption} avg per caption`} />
+            <KpiCard label="Positivity Rate"   value={`${stats.positivityRate}%`}  color={GREEN}   sub={`${stats.totalUpvotes.toLocaleString()} up / ${stats.totalDownvotes.toLocaleString()} down`} />
+            <KpiCard label="Peak Hour"         value={fmt12(stats.peakHour)}       color={AMBER}   sub={`${stats.peakHourCount.toLocaleString()} votes that hour`} />
           </div>
 
-          {/* Hour + DoW charts */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <Card>
               <CardHead title="Votes by hour of day" />
               <div style={{ padding: '1rem 1.25rem' }}>
-                <Legend items={[{ color: BLUE, label: 'Upvotes' }, { color: CORAL, label: 'Downvotes' }]} />
-                <div style={{ height: 180 }}>
-                  <Bar
-                    data={{ labels: hourLabels, datasets: [
-                      { label: 'Upvotes',   data: stats.hourUps,   backgroundColor: BLUE,  stack: 'v', borderRadius: 2 },
-                      { label: 'Downvotes', data: stats.hourDowns, backgroundColor: CORAL, stack: 'v', borderRadius: 2 },
-                    ]}}
-                    options={{ ...chartDefaults, scales: { ...stackedScales, x: { ...stackedScales.x, ticks: { ...stackedScales.x.ticks, autoSkip: true, maxTicksLimit: 8 } } } } as any}
-                  />
+                <ChartLegend items={[{ color: BLUE, label: 'Upvotes' }, { color: CORAL, label: 'Downvotes' }]} />
+                <div style={{ position: 'relative', height: 180 }}>
+                  <canvas ref={refHour} role="img" aria-label="Stacked bar chart of upvotes and downvotes by hour of day" />
                 </div>
               </div>
             </Card>
-
             <Card>
               <CardHead title="Votes by day of week" />
               <div style={{ padding: '1rem 1.25rem' }}>
-                <Legend items={[{ color: BLUE, label: 'Upvotes' }, { color: CORAL, label: 'Downvotes' }]} />
-                <div style={{ height: 180 }}>
-                  <Bar
-                    data={{ labels: dowLabels, datasets: [
-                      { label: 'Upvotes',   data: stats.dowUps,   backgroundColor: BLUE,  stack: 'v', borderRadius: 2 },
-                      { label: 'Downvotes', data: stats.dowDowns, backgroundColor: CORAL, stack: 'v', borderRadius: 2 },
-                    ]}}
-                    options={{ ...chartDefaults, scales: stackedScales } as any}
-                  />
+                <ChartLegend items={[{ color: BLUE, label: 'Upvotes' }, { color: CORAL, label: 'Downvotes' }]} />
+                <div style={{ position: 'relative', height: 180 }}>
+                  <canvas ref={refDow} role="img" aria-label="Stacked bar chart of upvotes and downvotes by day of week" />
                 </div>
               </div>
             </Card>
           </div>
 
-          {/* Positivity by hour */}
           <Card>
             <CardHead title="Positivity rate by hour" subtitle="% of votes that are upvotes" />
             <div style={{ padding: '1rem 1.25rem' }}>
-              <Legend items={[{ color: AMBER, label: '% upvotes' }]} />
-              <div style={{ height: 140 }}>
-                <Line
-                  data={{ labels: hourLabels, datasets: [{
-                    label: '% upvotes', data: stats.posRateByHour,
-                    borderColor: AMBER, backgroundColor: BLUE_L,
-                    fill: true, tension: 0.4, pointRadius: 3,
-                    pointBackgroundColor: AMBER, spanGaps: true,
-                  }]}}
-                  options={{ ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, max: 100, ticks: { ...chartDefaults.scales.y.ticks, callback: (v: any) => v + '%' } } }, plugins: { legend: { display: false } } } as any}
-                />
+              <ChartLegend items={[{ color: AMBER, label: '% upvotes' }]} />
+              <div style={{ position: 'relative', height: 140 }}>
+                <canvas ref={refPosRate} role="img" aria-label="Line chart of positivity rate by hour of day" />
               </div>
             </div>
           </Card>
 
-          {/* Rating distribution + up/down split */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <Card>
               <CardHead title="Rating distribution" subtitle="captions grouped by net score" />
@@ -439,43 +470,32 @@ export default function CaptionStats() {
                       <span style={{ fontSize: '0.75rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace" }}>{r.label}</span>
                       <span style={{ fontSize: '0.82rem', fontWeight: 600, color: r.color, fontFamily: "'IBM Plex Mono', monospace" }}>{r.count}</span>
                     </div>
-                    <div style={{ height: 4, background: '#1e1e1e', borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
-                      <div style={{ height: '100%', width: `${Math.max(2, (r.count / maxDist) * 100)}%`, background: r.color, borderRadius: 2, transition: 'width 0.6s ease' }} />
-                    </div>
+                    <Bar value={r.count} max={maxDist} color={r.color} />
                   </div>
                 ))}
               </div>
             </Card>
-
             <Card>
               <CardHead title="Up vs down split" />
               <div style={{ padding: '1rem 1.25rem' }}>
-                <Legend items={[{ color: GREEN, label: `Upvotes ${stats.positivityRate}%` }, { color: CORAL, label: `Downvotes ${100 - stats.positivityRate}%` }]} />
-                <div style={{ height: 180 }}>
-                  <Doughnut
-                    data={{ labels: ['Upvotes', 'Downvotes'], datasets: [{ data: [stats.totalUpvotes, stats.totalDownvotes], backgroundColor: [GREEN, CORAL], borderWidth: 0 }] }}
-                    options={{ responsive: true, maintainAspectRatio: false, cutout: '68%', plugins: { legend: { display: false } } }}
-                  />
+                <ChartLegend items={[{ color: GREEN, label: `Upvotes ${stats.positivityRate}%` }, { color: CORAL, label: `Downvotes ${100 - stats.positivityRate}%` }]} />
+                <div style={{ position: 'relative', height: 180 }}>
+                  <canvas ref={refSplit} role="img" aria-label={`Doughnut chart showing ${stats.positivityRate}% upvotes and ${100 - stats.positivityRate}% downvotes`} />
                 </div>
               </div>
             </Card>
           </div>
 
-          {/* Votes per caption distribution */}
           <Card>
             <CardHead title="Votes per caption distribution" subtitle="how many captions fall into each engagement bucket" />
             <div style={{ padding: '1rem 1.25rem' }}>
-              <Legend items={[{ color: BLUE, label: 'Caption count' }]} />
-              <div style={{ height: 160 }}>
-                <Bar
-                  data={{ labels: stats.distLabels, datasets: [{ label: 'Captions', data: stats.distCounts, backgroundColor: BLUE, borderRadius: 3 }] }}
-                  options={chartDefaults as any}
-                />
+              <ChartLegend items={[{ color: BLUE, label: 'Caption count' }]} />
+              <div style={{ position: 'relative', height: 160 }}>
+                <canvas ref={refDist} role="img" aria-label="Bar chart of votes per caption distribution" />
               </div>
             </div>
           </Card>
 
-          {/* Caption coverage */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <Card>
               <CardHead title="Vote breakdown" />
@@ -565,15 +585,9 @@ export default function CaptionStats() {
           <Card>
             <CardHead title="Daily vote activity" subtitle="last 30 days" />
             <div style={{ padding: '1rem 1.25rem' }}>
-              <Legend items={[{ color: BLUE, label: 'Upvotes' }, { color: CORAL, label: 'Downvotes' }]} />
-              <div style={{ height: 180 }}>
-                <Bar
-                  data={{ labels: stats.last30Dates.map(d => d.slice(5)), datasets: [
-                    { label: 'Upvotes',   data: stats.last30Ups,   backgroundColor: BLUE,  stack: 'v' },
-                    { label: 'Downvotes', data: stats.last30Downs, backgroundColor: CORAL, stack: 'v' },
-                  ]}}
-                  options={{ ...chartDefaults, scales: { ...stackedScales, x: { ...stackedScales.x, ticks: { ...stackedScales.x.ticks, autoSkip: true, maxTicksLimit: 10 } } } } as any}
-                />
+              <ChartLegend items={[{ color: BLUE, label: 'Upvotes' }, { color: CORAL, label: 'Downvotes' }]} />
+              <div style={{ position: 'relative', height: 180 }}>
+                <canvas ref={refDaily} role="img" aria-label="Stacked bar chart of daily upvotes and downvotes over the last 30 days" />
               </div>
             </div>
           </Card>
