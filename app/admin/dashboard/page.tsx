@@ -182,86 +182,18 @@ export default function CaptionStats() {
   const fetchStats = async () => {
     setLoading(true);
     try {
-      const [{ data: votes }, { data: captions }] = await Promise.all([
-        supabase.from('caption_votes').select('caption_id, vote_value, created_at').limit(100000),
-        supabase.from('captions').select('id, content, image_id, is_public, created_at, images(id, url, image_description)').eq('is_public', true).limit(100000),
-      ]);
+      const { data: votes, error } = await supabase
+        .from('caption_votes')
+        .select('caption_id, vote_value, created_at')
+        .limit(10);
 
-      const voteMap: Record<string, { up: number; down: number }> = {};
-      let totalUp = 0, totalDown = 0;
-      const hourBuckets = Array(24).fill(0);
-      const hourUps     = Array(24).fill(0);
-      const hourDowns   = Array(24).fill(0);
-      const dowBuckets  = Array(7).fill(0);
-      const dowUps      = Array(7).fill(0);
-
-      votes?.forEach(v => {
-        if (!voteMap[v.caption_id]) voteMap[v.caption_id] = { up: 0, down: 0 };
-        if (v.vote_value > 0) { voteMap[v.caption_id].up += v.vote_value; totalUp += v.vote_value; }
-        else { voteMap[v.caption_id].down += Math.abs(v.vote_value); totalDown += Math.abs(v.vote_value); }
-
-        if (v.created_at) {
-          const d = new Date(v.created_at);
-          const h   = d.getHours();
-          const dow = d.getDay();
-          hourBuckets[h]++;
-          if (v.vote_value > 0) hourUps[h]++; else hourDowns[h]++;
-          dowBuckets[dow]++;
-          if (v.vote_value > 0) dowUps[dow]++;
-        }
-      });
-
-      const captionStats: CaptionStat[] = (captions || []).map((c: any) => {
-        const v = voteMap[c.id] || { up: 0, down: 0 };
-        const total = v.up + v.down;
-        const net = v.up - v.down;
-        const controversy = total > 0 ? (Math.min(v.up, v.down) / Math.max(v.up, v.down, 1)) * Math.log(total + 1) : 0;
-        return {
-          caption_id: c.id,
-          content: c.content,
-          image_url: c.images?.url ?? '',
-          image_description: c.images?.image_description ?? '',
-          upvotes: v.up,
-          downvotes: v.down,
-          net,
-          total_votes: total,
-          controversy_score: controversy,
-          created_at: c.created_at,
-        };
-      });
-
-      const withVotes = captionStats.filter(c => c.total_votes > 0);
-      const noVotes   = captionStats.filter(c => c.total_votes === 0).length;
-      const avgNet    = withVotes.length > 0 ? withVotes.reduce((a, b) => a + b.net, 0) / withVotes.length : 0;
-      const avgVotes  = captionStats.length > 0 ? (votes?.length ?? 0) / captionStats.length : 0;
-      const peakHour  = hourBuckets.indexOf(Math.max(...hourBuckets));
-
-      const buckets = [
-        { label: 'Loved (net ≥ 10)',     min: 10,        max: Infinity, color: '#4ade80' },
-        { label: 'Liked (net 1–9)',       min: 1,         max: 9,        color: '#86efac' },
-        { label: 'Mixed (net 0)',         min: 0,         max: 0,        color: '#facc15' },
-        { label: 'Disliked (net −1–−9)', min: -9,        max: -1,       color: '#fb923c' },
-        { label: 'Hated (net ≤ −10)',    min: -Infinity, max: -10,      color: '#f87171' },
-      ];
-      const ratingDistribution = buckets.map(b => ({
-        label: b.label,
-        color: b.color,
-        count: withVotes.filter(c => c.net >= b.min && c.net <= b.max).length,
-      }));
-
-      const last14: DailyVote[] = [];
-      for (let i = 13; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-        const dayVotes = votes?.filter(v => v.created_at?.startsWith(dateStr)) ?? [];
-        last14.push({
-          date: dateStr,
-          votes: dayVotes.length,
-          upvotes: dayVotes.filter(v => v.vote_value > 0).length,
-          downvotes: dayVotes.filter(v => v.vote_value < 0).length,
-        });
-      }
+      console.log('votes:', votes);
+      console.log('error:', error);
+      console.log('count:', votes?.length);
+    } finally {
+      setLoading(false);
+    }
+  };
 
       const imageMap: Record<string, { url: string; desc: string; nets: number[]; count: number }> = {};
       captionStats.forEach(c => {
