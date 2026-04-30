@@ -8,598 +8,528 @@ import AdminShell from '../AdminShell';
 const BLUE  = '#378ADD';
 const AMBER = '#BA7517';
 const CORAL = '#D85A30';
+const TEAL  = '#1D9E75';
 const GRAY  = '#888780';
 
-const fmt12 = (h: number) => h === 0 ? '12am' : h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`;
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-interface CaptionStat {
-  caption_id: string;
-  content: string;
-  image_url: string;
-  image_description: string;
-  upvotes: number;
-  downvotes: number;
-  net: number;
-  total_votes: number;
-  controversy_score: number;
-  created_at?: string;
-}
-
-interface DailyVote {
-  date: string;
-  votes: number;
-  upvotes: number;
-  downvotes: number;
-}
-
-interface Stats {
+interface DashboardStats {
   totalCaptions: number;
-  totalVotes: number;
-  totalUpvotes: number;
-  totalDownvotes: number;
-  avgVotesPerCaption: number;
-  avgNetScore: number;
-  positivityRate: number;
-  captionsWithNoVotes: number;
-  captionsWithVotes: number;
-  topFunniest: CaptionStat[];
-  mostControversial: CaptionStat[];
-  mostVoted: CaptionStat[];
-  worstRated: CaptionStat[];
-  ratingDistribution: { label: string; count: number; color: string }[];
-  dailyVotes: DailyVote[];
-  topImages: { image_url: string; image_description: string; caption_count: number; avg_net: number }[];
-  peakHour: number;
-  peakHourCount: number;
-  hourUps: number[];
-  hourDowns: number[];
-  dowUps: number[];
-  dowDowns: number[];
-  posRateByHour: (number | null)[];
+  publicCaptions: number;
+  featuredCaptions: number;
+  totalLikes: number;
+  activeUsers: number;
+  uniqueImages: number;
 }
 
-const Pill = ({ children, color }: { children: React.ReactNode; color: string }) => (
-  <span style={{
-    display: 'inline-block', padding: '2px 8px', borderRadius: 99,
-    fontSize: '0.68rem', fontFamily: "'IBM Plex Mono', monospace",
-    background: color + '22', color, border: `1px solid ${color}44`,
-  }}>{children}</span>
-);
+interface DailyCount {
+  date: string;
+  public_count: number;
+  private_count: number;
+}
 
-const Bar = ({ value, max, color }: { value: number; max: number; color: string }) => (
-  <div style={{ height: 4, background: '#1e1e1e', borderRadius: 2, overflow: 'hidden', marginTop: 6 }}>
-    <div style={{ height: '100%', width: `${Math.max(2, (value / max) * 100)}%`, background: color, borderRadius: 2, transition: 'width 0.6s ease' }} />
-  </div>
-);
+interface FlavorCount {
+  humor_flavor_id: number;
+  count: number;
+}
 
-const SectionHeader = ({ title, subtitle }: { title: string; subtitle?: string }) => (
-  <div style={{ marginBottom: '1.25rem' }}>
-    <h2 style={{ fontSize: '0.82rem', fontWeight: 600, color: '#e0e0e0', fontFamily: "'IBM Plex Mono', monospace", margin: 0, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{title}</h2>
-    {subtitle && <p style={{ fontSize: '0.7rem', color: '#444', margin: '0.25rem 0 0', fontFamily: "'IBM Plex Mono', monospace" }}>{subtitle}</p>}
-  </div>
-);
+interface ChainCount {
+  llm_prompt_chain_id: number;
+  count: number;
+}
 
-const Card = ({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) => (
-  <div style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 8, overflow: 'hidden', ...style }}>
-    {children}
-  </div>
-);
+interface TopCaption {
+  id: string;
+  content: string;
+  like_count: number;
+}
 
-const CaptionRow = ({ item, idx, scoreLabel, scoreColor, scoreValue }: {
-  item: CaptionStat; idx: number; scoreLabel: string; scoreColor: string; scoreValue: string;
-}) => (
-  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1.25rem', borderBottom: idx < 4 ? '1px solid #1a1a1a' : 'none' }}>
-    <div style={{ fontSize: '1rem', fontWeight: 700, color: idx === 0 ? '#febc2e' : '#2a2a2a', fontFamily: "'IBM Plex Mono', monospace", width: 20, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</div>
-    {item.image_url && (
-      <img src={item.image_url} alt="" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid #2a2a2a' }} />
-    )}
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <p style={{ fontSize: '0.78rem', color: '#ccc', fontStyle: 'italic', margin: '0 0 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'IBM Plex Mono', monospace" }}>"{item.content}"</p>
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
-        <Pill color="#4ade80">↑{item.upvotes}</Pill>
-        <Pill color="#f87171">↓{item.downvotes}</Pill>
-        <Pill color="#555">{item.total_votes} votes</Pill>
-      </div>
+interface RequestStatus {
+  fulfilled: number;
+  pending: number;
+  failed: number;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmt(n: number): string {
+  return n.toLocaleString();
+}
+
+function pct(part: number, total: number): string {
+  if (!total) return '0%';
+  return Math.round((part / total) * 100) + '%';
+}
+
+function truncate(str: string, max = 28): string {
+  return str.length > max ? str.slice(0, max) + '…' : str;
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function MetricCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+}) {
+  return (
+    <div style={{
+      background: 'var(--color-background-secondary)',
+      borderRadius: 'var(--border-radius-md)',
+      padding: '14px 16px',
+    }}>
+      <p style={{ fontSize: 12, color: 'var(--color-text-secondary)', margin: '0 0 4px' }}>{label}</p>
+      <p style={{ fontSize: 22, fontWeight: 500, color: 'var(--color-text-primary)', margin: 0 }}>
+        {typeof value === 'number' ? fmt(value) : value}
+      </p>
+      {sub && (
+        <p style={{ fontSize: 12, color: 'var(--color-text-tertiary)', margin: '4px 0 0' }}>{sub}</p>
+      )}
     </div>
-    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-      <div style={{ fontSize: '0.7rem', color: '#444', fontFamily: "'IBM Plex Mono', monospace", marginBottom: 2 }}>{scoreLabel}</div>
-      <div style={{ fontSize: '1rem', fontWeight: 700, color: scoreColor, fontFamily: "'IBM Plex Mono', monospace" }}>{scoreValue}</div>
-    </div>
-  </div>
-);
-
-export default function CaptionStats() {
-  const router = useRouter();
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'rankings' | 'images' | 'trends'>('overview');
-
-  const refHour    = useRef<HTMLCanvasElement>(null);
-  const refDow     = useRef<HTMLCanvasElement>(null);
-  const refPosRate = useRef<HTMLCanvasElement>(null);
-
-  const hourLabels = Array.from({ length: 24 }, (_, i) => fmt12(i));
-  const dowLabels  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  const scaleStacked = {
-    x: { stacked: true, ticks: { font: { size: 11 }, color: GRAY, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
-    y: { stacked: true, ticks: { font: { size: 11 }, color: GRAY }, grid: { color: 'rgba(128,128,128,0.1)' } },
-  };
-  const scaleBase = {
-    x: { ticks: { font: { size: 11 }, color: GRAY }, grid: { display: false } },
-    y: { ticks: { font: { size: 11 }, color: GRAY }, grid: { color: 'rgba(128,128,128,0.1)' } },
-  };
-  const baseOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } };
-
-  useEffect(() => {
-    if (!stats) return;
-    let c1: any, c2: any, c3: any;
-    import('chart.js/auto').then(({ default: Chart }) => {
-      if (refHour.current)
-        c1 = new Chart(refHour.current, {
-          type: 'bar',
-          data: { labels: hourLabels, datasets: [
-            { label: 'Upvotes',   data: stats.hourUps,   backgroundColor: BLUE,  stack: 'v', borderRadius: 2 },
-            { label: 'Downvotes', data: stats.hourDowns, backgroundColor: CORAL, stack: 'v', borderRadius: 2 },
-          ]},
-          options: { ...baseOpts, scales: scaleStacked } as any,
-        });
-      if (refDow.current)
-        c2 = new Chart(refDow.current, {
-          type: 'bar',
-          data: { labels: dowLabels, datasets: [
-            { label: 'Upvotes',   data: stats.dowUps,   backgroundColor: BLUE,  stack: 'v', borderRadius: 2 },
-            { label: 'Downvotes', data: stats.dowDowns, backgroundColor: CORAL, stack: 'v', borderRadius: 2 },
-          ]},
-          options: { ...baseOpts, scales: scaleStacked } as any,
-        });
-      if (refPosRate.current)
-        c3 = new Chart(refPosRate.current, {
-          type: 'line',
-          data: { labels: hourLabels, datasets: [{
-            label: '% upvotes', data: stats.posRateByHour,
-            borderColor: AMBER, backgroundColor: AMBER + '22',
-            fill: true, tension: 0.4, pointRadius: 3,
-            pointBackgroundColor: AMBER, spanGaps: true,
-          }]},
-          options: { ...baseOpts, scales: { ...scaleBase, y: { ...scaleBase.y, min: 0, max: 100, ticks: { ...scaleBase.y.ticks, callback: (v: any) => v + '%' } } } } as any,
-        });
-    });
-    return () => { c1?.destroy(); c2?.destroy(); c3?.destroy(); };
-  }, [stats]);
-
-  useEffect(() => {
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { router.push('/'); return; }
-      const { data: profile } = await supabase.from('profiles').select('is_superadmin').eq('id', session.user.id).single();
-      if (!profile?.is_superadmin) { router.push('/'); return; }
-      await fetchStats();
-    };
-    init();
-  }, [router]);
-
-  const fetchStats = async () => {
-    setLoading(true);
-    try {
-      const [{ data: votes }, { data: captions }] = await Promise.all([
-        supabase.from('caption_votes').select('caption_id, vote_value, created_at').limit(100000),
-        supabase.from('captions').select('id, content, image_id, is_public, created_at, images(id, url, image_description)').eq('is_public', true).limit(100000),
-      ]);
-
-      const voteMap: Record<string, { up: number; down: number }> = {};
-      let totalUp = 0, totalDown = 0;
-      const hourBuckets = Array(24).fill(0);
-      const hourUps     = Array(24).fill(0);
-      const hourDowns   = Array(24).fill(0);
-      const dowBuckets  = Array(7).fill(0);
-      const dowUps      = Array(7).fill(0);
-
-      votes?.forEach(v => {
-        if (!voteMap[v.caption_id]) voteMap[v.caption_id] = { up: 0, down: 0 };
-        if (v.vote_value > 0) { voteMap[v.caption_id].up += v.vote_value; totalUp += v.vote_value; }
-        else { voteMap[v.caption_id].down += Math.abs(v.vote_value); totalDown += Math.abs(v.vote_value); }
-
-        if (v.created_at) {
-          const d   = new Date(v.created_at);
-          const h   = d.getHours();
-          const dow = d.getDay();
-          hourBuckets[h]++;
-          if (v.vote_value > 0) hourUps[h]++; else hourDowns[h]++;
-          dowBuckets[dow]++;
-          if (v.vote_value > 0) dowUps[dow]++;
-        }
-      });
-
-      const captionStats: CaptionStat[] = (captions || []).map((c: any) => {
-        const v = voteMap[c.id] || { up: 0, down: 0 };
-        const total = v.up + v.down;
-        const net = v.up - v.down;
-        const controversy = total > 0 ? (Math.min(v.up, v.down) / Math.max(v.up, v.down, 1)) * Math.log(total + 1) : 0;
-        return {
-          caption_id: c.id, content: c.content,
-          image_url: c.images?.url ?? '',
-          image_description: c.images?.image_description ?? '',
-          upvotes: v.up, downvotes: v.down, net, total_votes: total,
-          controversy_score: controversy, created_at: c.created_at,
-        };
-      });
-
-      const withVotes = captionStats.filter(c => c.total_votes > 0);
-      const noVotes   = captionStats.filter(c => c.total_votes === 0).length;
-      const avgNet    = withVotes.length > 0 ? withVotes.reduce((a, b) => a + b.net, 0) / withVotes.length : 0;
-      const avgVotes  = captionStats.length > 0 ? (votes?.length ?? 0) / captionStats.length : 0;
-      const peakHour  = hourBuckets.indexOf(Math.max(...hourBuckets));
-
-      const ratingDistribution = [
-        { label: 'Loved (net ≥ 10)',     min: 10,        max: Infinity, color: '#4ade80' },
-        { label: 'Liked (net 1–9)',       min: 1,         max: 9,        color: '#86efac' },
-        { label: 'Mixed (net 0)',         min: 0,         max: 0,        color: '#facc15' },
-        { label: 'Disliked (net −1–−9)', min: -9,        max: -1,       color: '#fb923c' },
-        { label: 'Hated (net ≤ −10)',    min: -Infinity, max: -10,      color: '#f87171' },
-      ].map(b => ({
-        label: b.label, color: b.color,
-        count: withVotes.filter(c => c.net >= b.min && c.net <= b.max).length,
-      }));
-
-      const last14: DailyVote[] = [];
-      for (let i = 13; i >= 0; i--) {
-        const d = new Date(); d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-        const dayVotes = votes?.filter(v => v.created_at?.startsWith(dateStr)) ?? [];
-        last14.push({
-          date: dateStr, votes: dayVotes.length,
-          upvotes: dayVotes.filter(v => v.vote_value > 0).length,
-          downvotes: dayVotes.filter(v => v.vote_value < 0).length,
-        });
-      }
-
-      const imageMap: Record<string, { url: string; desc: string; nets: number[]; count: number }> = {};
-      captionStats.forEach(c => {
-        const cap = (captions || []).find((x: any) => x.id === c.caption_id);
-        const imgId = cap?.image_id;
-        if (!imgId) return;
-        if (!imageMap[imgId]) imageMap[imgId] = { url: c.image_url, desc: c.image_description, nets: [], count: 0 };
-        imageMap[imgId].nets.push(c.net);
-        imageMap[imgId].count++;
-      });
-
-      setStats({
-        totalCaptions: captions?.length ?? 0,
-        totalVotes: votes?.length ?? 0,
-        totalUpvotes: totalUp,
-        totalDownvotes: totalDown,
-        avgVotesPerCaption: Math.round(avgVotes * 10) / 10,
-        avgNetScore: Math.round(avgNet * 10) / 10,
-        positivityRate: votes?.length ? Math.round((totalUp / votes.length) * 100) : 0,
-        captionsWithNoVotes: noVotes,
-        captionsWithVotes: withVotes.length,
-        peakHour,
-        peakHourCount: hourBuckets[peakHour],
-        hourUps, hourDowns,
-        dowUps, dowDowns: dowBuckets.map((t, i) => t - dowUps[i]),
-        posRateByHour: hourUps.map((u, i) =>
-          hourBuckets[i] > 0 ? Math.round((u / hourBuckets[i]) * 100) : null
-        ),
-        topFunniest:       [...captionStats].sort((a, b) => b.net - a.net).slice(0, 10),
-        mostControversial: [...captionStats].sort((a, b) => b.controversy_score - a.controversy_score).slice(0, 10),
-        mostVoted:         [...captionStats].sort((a, b) => b.total_votes - a.total_votes).slice(0, 10),
-        worstRated:        [...captionStats].sort((a, b) => a.net - b.net).slice(0, 10),
-        ratingDistribution,
-        dailyVotes: last14,
-        topImages: Object.values(imageMap)
-          .map(v => ({
-            image_url: v.url, image_description: v.desc,
-            caption_count: v.count,
-            avg_net: v.nets.length ? v.nets.reduce((a, b) => a + b, 0) / v.nets.length : 0,
-          }))
-          .sort((a, b) => b.avg_net - a.avg_net).slice(0, 8),
-      });
-    } catch (e) {
-      console.error('fetchStats error:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const tabs = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'rankings', label: 'Rankings' },
-    { key: 'images',   label: 'Images'   },
-    { key: 'trends',   label: 'Trends'   },
-  ] as const;
-
-  if (loading) return (
-    <AdminShell active="caption-stats">
-      <div style={{ color: '#555', fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.82rem' }}>Crunching numbers...</div>
-    </AdminShell>
   );
+}
 
-  const maxDaily = Math.max(...(stats?.dailyVotes.map(d => d.votes) ?? [1]), 1);
-  const maxDist  = Math.max(...(stats?.ratingDistribution.map(d => d.count) ?? [1]), 1);
+function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: 'var(--color-background-primary)',
+      border: '0.5px solid var(--color-border-tertiary)',
+      borderRadius: 'var(--border-radius-lg)',
+      padding: '1rem 1.25rem',
+    }}>
+      <p style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-secondary)', margin: '0 0 1rem' }}>
+        {title}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function Legend({ items }: { items: { color: string; label: string }[] }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 10 }}>
+      {items.map(({ color, label }) => (
+        <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--color-text-secondary)' }}>
+          <span style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ─── Bar chart (pure CSS) ─────────────────────────────────────────────────────
+
+function HBarChart({ data, color }: { data: { label: string; value: number }[]; color: string }) {
+  const max = Math.max(...data.map(d => d.value), 1);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {data.map(({ label, value }) => (
+        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', width: 110, flexShrink: 0, textAlign: 'right' }}>
+            {label}
+          </span>
+          <div style={{ flex: 1, background: 'var(--color-background-secondary)', borderRadius: 3, height: 20, overflow: 'hidden' }}>
+            <div style={{
+              width: `${(value / max) * 100}%`,
+              height: '100%',
+              background: color,
+              borderRadius: 3,
+              transition: 'width 0.6s ease',
+            }} />
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--color-text-tertiary)', width: 40, textAlign: 'right' }}>
+            {fmt(value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VBarChart({
+  data,
+  colors,
+  stacked = false,
+}: {
+  data: { label: string; values: number[] }[];
+  colors: string[];
+  stacked?: boolean;
+}) {
+  const maxVal = stacked
+    ? Math.max(...data.map(d => d.values.reduce((a, b) => a + b, 0)), 1)
+    : Math.max(...data.flatMap(d => d.values), 1);
 
   return (
-    <AdminShell active="caption-stats">
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 150, paddingBottom: 20, position: 'relative' }}>
+      {/* Y gridlines */}
+      {[0.25, 0.5, 0.75, 1].map(f => (
+        <div key={f} style={{
+          position: 'absolute',
+          bottom: 20 + f * 130,
+          left: 0, right: 0,
+          borderTop: '0.5px solid var(--color-border-tertiary)',
+          pointerEvents: 'none',
+        }} />
+      ))}
+      {data.map(({ label, values }) => {
+        const total = stacked ? values.reduce((a, b) => a + b, 0) : Math.max(...values);
+        return (
+          <div key={label} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0, height: '100%', justifyContent: 'flex-end' }}>
+            <div style={{ width: '100%', display: 'flex', flexDirection: stacked ? 'column-reverse' : 'row', alignItems: 'flex-end', gap: stacked ? 0 : 2, height: `${(total / maxVal) * 130}px` }}>
+              {values.map((v, i) => (
+                <div key={i} style={{
+                  flex: stacked ? 'none' : 1,
+                  height: stacked ? `${(v / total) * 100}%` : '100%',
+                  background: colors[i] ?? GRAY,
+                  borderRadius: stacked && i === values.length - 1 ? '3px 3px 0 0' : stacked ? 0 : 3,
+                  minHeight: 2,
+                  transition: 'height 0.6s ease',
+                }} />
+              ))}
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--color-text-tertiary)', marginTop: 4, textAlign: 'center' }}>
+              {label}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
-      {/* Header */}
-      <div style={{ marginBottom: '1.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1 style={{ fontSize: '1.3rem', fontWeight: 600, color: '#fff', marginBottom: '0.25rem', fontFamily: "'IBM Plex Mono', monospace" }}>Caption Statistics</h1>
-          <p style={{ fontSize: '0.78rem', color: '#555', fontFamily: "'IBM Plex Mono', monospace" }}>Detailed analytics on caption performance and user voting</p>
+function DonutChart({ data }: { data: { value: number; color: string; label: string }[] }) {
+  const total = data.reduce((a, d) => a + d.value, 0) || 1;
+  const r = 50, cx = 60, cy = 60, stroke = 20;
+  let cumulative = -0.25; // start at top
+
+  const slices = data.map(({ value, color, label }) => {
+    const frac = value / total;
+    const start = cumulative;
+    cumulative += frac;
+    const startAngle = start * 2 * Math.PI;
+    const endAngle = cumulative * 2 * Math.PI;
+    const x1 = cx + r * Math.cos(startAngle);
+    const y1 = cy + r * Math.sin(startAngle);
+    const x2 = cx + r * Math.cos(endAngle);
+    const y2 = cy + r * Math.sin(endAngle);
+    const large = frac > 0.5 ? 1 : 0;
+    return { path: `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`, color, label, pct: Math.round(frac * 100) };
+  });
+
+  return (
+    <svg viewBox="0 0 120 120" width={120} height={120} style={{ overflow: 'visible' }}>
+      {slices.map((s, i) => (
+        <path key={i} d={s.path} fill={s.color} stroke="var(--color-background-primary)" strokeWidth={1.5} />
+      ))}
+      <circle cx={cx} cy={cy} r={r - stroke} fill="var(--color-background-primary)" />
+    </svg>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
+
+export default function AdminDashboardPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [stats, setStats] = useState<DashboardStats>({
+    totalCaptions: 0,
+    publicCaptions: 0,
+    featuredCaptions: 0,
+    totalLikes: 0,
+    activeUsers: 0,
+    uniqueImages: 0,
+  });
+
+  const [daily, setDaily] = useState<DailyCount[]>([]);
+  const [flavors, setFlavors] = useState<FlavorCount[]>([]);
+  const [chains, setChains] = useState<ChainCount[]>([]);
+  const [topCaptions, setTopCaptions] = useState<TopCaption[]>([]);
+  const [requestStatus, setRequestStatus] = useState<RequestStatus>({ fulfilled: 0, pending: 0, failed: 0 });
+
+  useEffect(() => {
+    async function fetchAll() {
+      try {
+        setLoading(true);
+
+        // ── Overview counts ──
+        const [
+          { count: totalCaptions },
+          { count: publicCaptions },
+          { count: featuredCaptions },
+          { data: likeData },
+          { count: activeUsers },
+          { count: uniqueImages },
+        ] = await Promise.all([
+          supabase.from('captions').select('*', { count: 'exact', head: true }),
+          supabase.from('captions').select('*', { count: 'exact', head: true }).eq('is_public', true),
+          supabase.from('captions').select('*', { count: 'exact', head: true }).eq('is_featured', true),
+          supabase.from('captions').select('like_count'),
+          supabase.from('captions').select('profile_id', { count: 'exact', head: true }),
+          supabase.from('captions').select('image_id', { count: 'exact', head: true }),
+        ]);
+
+        const totalLikes = (likeData ?? []).reduce((sum, row) => sum + (row.like_count ?? 0), 0);
+
+        setStats({
+          totalCaptions: totalCaptions ?? 0,
+          publicCaptions: publicCaptions ?? 0,
+          featuredCaptions: featuredCaptions ?? 0,
+          totalLikes,
+          activeUsers: activeUsers ?? 0,
+          uniqueImages: uniqueImages ?? 0,
+        });
+
+        // ── Daily captions (last 7 days) ──
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const { data: recentCaptions } = await supabase
+          .from('captions')
+          .select('created_datetime_utc, is_public')
+          .gte('created_datetime_utc', sevenDaysAgo.toISOString());
+
+        const dayMap: Record<string, { public_count: number; private_count: number }> = {};
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const key = d.toLocaleDateString('en-US', { weekday: 'short' });
+          dayMap[key] = { public_count: 0, private_count: 0 };
+        }
+        (recentCaptions ?? []).forEach(row => {
+          const key = new Date(row.created_datetime_utc).toLocaleDateString('en-US', { weekday: 'short' });
+          if (dayMap[key]) {
+            if (row.is_public) dayMap[key].public_count++;
+            else dayMap[key].private_count++;
+          }
+        });
+        setDaily(Object.entries(dayMap).map(([date, v]) => ({ date, ...v })));
+
+        // ── Humor flavor breakdown ──
+        const { data: flavorRows } = await supabase
+          .from('captions')
+          .select('humor_flavor_id')
+          .not('humor_flavor_id', 'is', null);
+
+        const flavorMap: Record<number, number> = {};
+        (flavorRows ?? []).forEach(row => {
+          flavorMap[row.humor_flavor_id] = (flavorMap[row.humor_flavor_id] ?? 0) + 1;
+        });
+        setFlavors(
+          Object.entries(flavorMap)
+            .map(([id, count]) => ({ humor_flavor_id: Number(id), count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5)
+        );
+
+        // ── LLM prompt chain usage ──
+        const { data: chainRows } = await supabase
+          .from('captions')
+          .select('llm_prompt_chain_id')
+          .not('llm_prompt_chain_id', 'is', null);
+
+        const chainMap: Record<number, number> = {};
+        (chainRows ?? []).forEach(row => {
+          chainMap[row.llm_prompt_chain_id] = (chainMap[row.llm_prompt_chain_id] ?? 0) + 1;
+        });
+        setChains(
+          Object.entries(chainMap)
+            .map(([id, count]) => ({ llm_prompt_chain_id: Number(id), count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5)
+        );
+
+        // ── Top captions by likes ──
+        const { data: topRows } = await supabase
+          .from('captions')
+          .select('id, content, like_count')
+          .order('like_count', { ascending: false })
+          .limit(5);
+        setTopCaptions(topRows ?? []);
+
+        // ── Caption request status ──
+        const { data: reqRows } = await supabase
+          .from('caption_requests')
+          .select('status');
+
+        const status = { fulfilled: 0, pending: 0, failed: 0 };
+        (reqRows ?? []).forEach((row: { status: string }) => {
+          const s = (row.status ?? '').toLowerCase();
+          if (s === 'fulfilled' || s === 'completed' || s === 'done') status.fulfilled++;
+          else if (s === 'failed' || s === 'error') status.failed++;
+          else status.pending++;
+        });
+        setRequestStatus(status);
+
+      } catch (e: any) {
+        setError(e.message ?? 'Failed to load dashboard data');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchAll();
+  }, []);
+
+  // ── Derived chart data ──
+
+  const dailyChartData = daily.map(d => ({
+    label: d.date,
+    values: [d.public_count, d.private_count],
+  }));
+
+  const flavorColors = [TEAL, BLUE, AMBER, CORAL, GRAY];
+  const flavorDonutData = flavors.map((f, i) => ({
+    value: f.count,
+    color: flavorColors[i] ?? GRAY,
+    label: `Flavor ${f.humor_flavor_id}`,
+  }));
+
+  const chainBarData = chains.map(c => ({
+    label: `Chain ${c.llm_prompt_chain_id}`,
+    value: c.count,
+  }));
+
+  const topCaptionBarData = topCaptions.map(c => ({
+    label: truncate(c.content ?? '', 22),
+    value: c.like_count ?? 0,
+  }));
+
+  const requestDonutData = [
+    { value: requestStatus.fulfilled, color: TEAL, label: `Fulfilled ${pct(requestStatus.fulfilled, requestStatus.fulfilled + requestStatus.pending + requestStatus.failed)}` },
+    { value: requestStatus.pending,   color: AMBER, label: `Pending ${pct(requestStatus.pending, requestStatus.fulfilled + requestStatus.pending + requestStatus.failed)}` },
+    { value: requestStatus.failed,    color: CORAL, label: `Failed ${pct(requestStatus.failed, requestStatus.fulfilled + requestStatus.pending + requestStatus.failed)}` },
+  ];
+
+  const totalRequests = requestStatus.fulfilled + requestStatus.pending + requestStatus.failed;
+
+  // ── Render ──
+
+  return (
+    <AdminShell>
+      <div style={{ padding: '1.5rem 0', fontFamily: 'var(--font-sans)' }}>
+
+        {error && (
+          <div style={{
+            background: 'var(--color-background-danger)',
+            border: '0.5px solid var(--color-border-danger)',
+            borderRadius: 'var(--border-radius-md)',
+            color: 'var(--color-text-danger)',
+            padding: '10px 14px',
+            fontSize: 13,
+            marginBottom: '1.5rem',
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Section label */}
+        <p style={{ fontSize: 12, fontWeight: 500, letterSpacing: '0.06em', color: 'var(--color-text-tertiary)', textTransform: 'uppercase', margin: '0 0 10px' }}>
+          Overview
+        </p>
+
+        {/* Metric cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginBottom: '1.75rem' }}>
+          <MetricCard label="Total captions" value={loading ? '—' : stats.totalCaptions} />
+          <MetricCard
+            label="Public captions"
+            value={loading ? '—' : stats.publicCaptions}
+            sub={loading ? undefined : pct(stats.publicCaptions, stats.totalCaptions) + ' of total'}
+          />
+          <MetricCard
+            label="Featured"
+            value={loading ? '—' : stats.featuredCaptions}
+            sub={loading ? undefined : pct(stats.featuredCaptions, stats.totalCaptions) + ' of total'}
+          />
+          <MetricCard
+            label="Total likes"
+            value={loading ? '—' : stats.totalLikes}
+            sub={loading && stats.totalCaptions ? undefined : `avg ${stats.totalCaptions ? (stats.totalLikes / stats.totalCaptions).toFixed(1) : 0} per caption`}
+          />
+          <MetricCard label="Active users" value={loading ? '—' : stats.activeUsers} sub="profiles with captions" />
+          <MetricCard label="Images used" value={loading ? '—' : stats.uniqueImages} sub="unique images" />
         </div>
-        <button onClick={fetchStats} style={{ background: 'transparent', border: '1px solid #2a2a2a', color: '#555', padding: '0.4rem 0.875rem', borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.75rem', cursor: 'pointer' }}>
-          ↻ refresh
-        </button>
+
+        {/* Daily + Flavor row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
+
+          <ChartCard title="Captions created — last 7 days">
+            <Legend items={[{ color: BLUE, label: 'Public' }, { color: GRAY, label: 'Private' }]} />
+            {loading
+              ? <div style={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
+              : <VBarChart data={dailyChartData} colors={[BLUE, GRAY]} stacked />
+            }
+          </ChartCard>
+
+          <ChartCard title="Humor flavor distribution">
+            <Legend items={flavorDonutData.map(d => ({ color: d.color, label: d.label }))} />
+            {loading
+              ? <div style={{ height: 150, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
+              : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <DonutChart data={flavorDonutData} />
+                  <div style={{ flex: 1 }}>
+                    {flavorDonutData.map(d => (
+                      <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
+                        <span>{d.label}</span>
+                        <span style={{ fontWeight: 500 }}>{pct(d.value, flavors.reduce((a, f) => a + f.count, 0))}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            }
+          </ChartCard>
+        </div>
+
+        {/* Top captions */}
+        <ChartCard title="Top captions by likes">
+          {loading
+            ? <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
+            : <HBarChart data={topCaptionBarData} color={BLUE} />
+          }
+        </ChartCard>
+
+        {/* Chains + Requests row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginTop: '1.25rem' }}>
+
+          <ChartCard title="Captions per LLM prompt chain">
+            {loading
+              ? <div style={{ height: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
+              : <HBarChart data={chainBarData} color={TEAL} />
+            }
+          </ChartCard>
+
+          <ChartCard title="Caption request status">
+            <Legend items={requestDonutData.map(d => ({ color: d.color, label: d.label }))} />
+            {loading
+              ? <div style={{ height: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-tertiary)', fontSize: 13 }}>Loading…</div>
+              : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <DonutChart data={requestDonutData} />
+                  <div>
+                    {requestDonutData.map(d => (
+                      <div key={d.label} style={{ display: 'flex', justifyContent: 'space-between', gap: 24, fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
+                        <span>{d.label}</span>
+                        <span style={{ fontWeight: 500 }}>{fmt(d.value)}</span>
+                      </div>
+                    ))}
+                    <p style={{ fontSize: 11, color: 'var(--color-text-tertiary)', margin: '10px 0 0' }}>
+                      {fmt(totalRequests)} total requests
+                    </p>
+                  </div>
+                </div>
+              )
+            }
+          </ChartCard>
+        </div>
       </div>
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1.75rem', borderBottom: '1px solid #1e1e1e', paddingBottom: '0' }}>
-        {tabs.map(t => (
-          <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-            background: 'transparent', border: 'none', padding: '0.5rem 1rem',
-            fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', cursor: 'pointer',
-            color: activeTab === t.key ? '#fff' : '#444',
-            borderBottom: activeTab === t.key ? '2px solid #febc2e' : '2px solid transparent',
-            marginBottom: -1, transition: 'color 0.15s',
-          }}>{t.label}</button>
-        ))}
-      </div>
-
-      {/* ── OVERVIEW ── */}
-      {activeTab === 'overview' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-
-          {/* KPI grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
-            {[
-              { label: 'Public Captions',  value: stats?.totalCaptions,       color: '#f472b6', sub: `${stats?.captionsWithVotes} have votes` },
-              { label: 'Total Votes Cast', value: stats?.totalVotes,           color: '#60a5fa', sub: `${stats?.avgVotesPerCaption} avg per caption` },
-              { label: 'Positivity Rate',  value: `${stats?.positivityRate}%`, color: '#4ade80', sub: `${stats?.totalUpvotes} up / ${stats?.totalDownvotes} down` },
-              { label: 'Peak Hour',        value: stats ? fmt12(stats.peakHour) : '—', color: '#febc2e', sub: stats ? `${stats.peakHourCount.toLocaleString()} votes that hour` : '' },
-            ].map(s => (
-              <Card key={s.label}>
-                <div style={{ padding: '1.25rem' }}>
-                  <div style={{ fontSize: '0.68rem', color: '#444', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.5rem', fontFamily: "'IBM Plex Mono', monospace" }}>{s.label}</div>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 700, color: s.color, fontFamily: "'IBM Plex Mono', monospace", lineHeight: 1 }}>{typeof s.value === 'number' ? s.value.toLocaleString() : s.value}</div>
-                  <div style={{ fontSize: '0.68rem', color: '#444', marginTop: '0.4rem', fontFamily: "'IBM Plex Mono', monospace" }}>{s.sub}</div>
-                </div>
-              </Card>
-            ))}
-          </div>
-
-          {/* Hour + DoW charts */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <Card>
-              <div style={{ padding: '0.875rem 1.25rem', borderBottom: '1px solid #1e1e1e' }}>
-                <SectionHeader title="Votes by hour of day" />
-              </div>
-              <div style={{ padding: '1rem 1.25rem' }}>
-                <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.7rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace" }}><div style={{ width: 10, height: 10, borderRadius: 2, background: BLUE }} />Upvotes</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.7rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace" }}><div style={{ width: 10, height: 10, borderRadius: 2, background: CORAL }} />Downvotes</div>
-                </div>
-                <div style={{ position: 'relative', height: 180 }}>
-                  <canvas ref={refHour} role="img" aria-label="Votes by hour of day" />
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <div style={{ padding: '0.875rem 1.25rem', borderBottom: '1px solid #1e1e1e' }}>
-                <SectionHeader title="Votes by day of week" />
-              </div>
-              <div style={{ padding: '1rem 1.25rem' }}>
-                <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.7rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace" }}><div style={{ width: 10, height: 10, borderRadius: 2, background: BLUE }} />Upvotes</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.7rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace" }}><div style={{ width: 10, height: 10, borderRadius: 2, background: CORAL }} />Downvotes</div>
-                </div>
-                <div style={{ position: 'relative', height: 180 }}>
-                  <canvas ref={refDow} role="img" aria-label="Votes by day of week" />
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          {/* Positivity rate by hour */}
-          <Card>
-            <div style={{ padding: '0.875rem 1.25rem', borderBottom: '1px solid #1e1e1e' }}>
-              <SectionHeader title="Positivity rate by hour" subtitle="% of votes that are upvotes" />
-            </div>
-            <div style={{ padding: '1rem 1.25rem' }}>
-              <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.7rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace" }}><div style={{ width: 10, height: 10, borderRadius: 2, background: AMBER }} />% upvotes</div>
-              </div>
-              <div style={{ position: 'relative', height: 140 }}>
-                <canvas ref={refPosRate} role="img" aria-label="Positivity rate by hour" />
-              </div>
-            </div>
-          </Card>
-
-          {/* Rating distribution */}
-          <Card>
-            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e1e1e' }}>
-              <SectionHeader title="Rating Distribution" subtitle="Captions grouped by net score" />
-            </div>
-            <div style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-              {stats?.ratingDistribution.map(r => (
-                <div key={r.label}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontSize: '0.75rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace" }}>{r.label}</span>
-                    <span style={{ fontSize: '0.82rem', fontWeight: 600, color: r.color, fontFamily: "'IBM Plex Mono', monospace" }}>{r.count}</span>
-                  </div>
-                  <Bar value={r.count} max={maxDist} color={r.color} />
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* Quick stats row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            <Card>
-              <div style={{ padding: '1.25rem' }}>
-                <SectionHeader title="Vote Breakdown" />
-                <div style={{ display: 'flex', gap: '1rem' }}>
-                  <div style={{ flex: 1, textAlign: 'center', padding: '1rem', background: '#0d1f0d', borderRadius: 6, border: '1px solid #1a3a1a' }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#4ade80', fontFamily: "'IBM Plex Mono', monospace" }}>{stats?.totalUpvotes?.toLocaleString()}</div>
-                    <div style={{ fontSize: '0.68rem', color: '#2d5a2d', fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>↑ upvotes</div>
-                  </div>
-                  <div style={{ flex: 1, textAlign: 'center', padding: '1rem', background: '#1f0d0d', borderRadius: 6, border: '1px solid #3a1a1a' }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#f87171', fontFamily: "'IBM Plex Mono', monospace" }}>{stats?.totalDownvotes?.toLocaleString()}</div>
-                    <div style={{ fontSize: '0.68rem', color: '#5a2d2d', fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>↓ downvotes</div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-            <Card>
-              <div style={{ padding: '1.25rem' }}>
-                <SectionHeader title="Caption Coverage" />
-                <div style={{ display: 'flex', gap: '1rem' }}>
-                  <div style={{ flex: 1, textAlign: 'center', padding: '1rem', background: '#0d1525', borderRadius: 6, border: '1px solid #1a2d4a' }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#60a5fa', fontFamily: "'IBM Plex Mono', monospace" }}>{stats?.captionsWithVotes}</div>
-                    <div style={{ fontSize: '0.68rem', color: '#2a4a6a', fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>have votes</div>
-                  </div>
-                  <div style={{ flex: 1, textAlign: 'center', padding: '1rem', background: '#151515', borderRadius: 6, border: '1px solid #2a2a2a' }}>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#444', fontFamily: "'IBM Plex Mono', monospace" }}>{stats?.captionsWithNoVotes}</div>
-                    <div style={{ fontSize: '0.68rem', color: '#333', fontFamily: "'IBM Plex Mono', monospace", marginTop: 4 }}>no votes yet</div>
-                  </div>
-                </div>
-              </div>
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* ── RANKINGS ── */}
-      {activeTab === 'rankings' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-            <Card>
-              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ color: '#febc2e' }}>★</span>
-                <SectionHeader title="Highest Rated" subtitle="by net score" />
-              </div>
-              {stats?.topFunniest.slice(0, 5).map((item, idx) => (
-                <CaptionRow key={item.caption_id} item={item} idx={idx} scoreLabel="net score" scoreColor="#4ade80" scoreValue={item.net >= 0 ? `+${item.net}` : `${item.net}`} />
-              ))}
-            </Card>
-            <Card>
-              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ color: '#f87171' }}>✗</span>
-                <SectionHeader title="Lowest Rated" subtitle="by net score" />
-              </div>
-              {stats?.worstRated.slice(0, 5).map((item, idx) => (
-                <CaptionRow key={item.caption_id} item={item} idx={idx} scoreLabel="net score" scoreColor="#f87171" scoreValue={item.net >= 0 ? `+${item.net}` : `${item.net}`} />
-              ))}
-            </Card>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
-            <Card>
-              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ color: '#60a5fa' }}>◎</span>
-                <SectionHeader title="Most Voted" subtitle="highest engagement" />
-              </div>
-              {stats?.mostVoted.slice(0, 5).map((item, idx) => (
-                <CaptionRow key={item.caption_id} item={item} idx={idx} scoreLabel="total votes" scoreColor="#60a5fa" scoreValue={`${item.total_votes}`} />
-              ))}
-            </Card>
-            <Card>
-              <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span style={{ color: '#f472b6' }}>⚡</span>
-                <SectionHeader title="Most Controversial" subtitle="evenly split votes" />
-              </div>
-              {stats?.mostControversial.slice(0, 5).map((item, idx) => (
-                <CaptionRow key={item.caption_id} item={item} idx={idx} scoreLabel="controversy" scoreColor="#f472b6" scoreValue={item.controversy_score.toFixed(2)} />
-              ))}
-            </Card>
-          </div>
-        </div>
-      )}
-
-      {/* ── IMAGES ── */}
-      {activeTab === 'images' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <Card>
-            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e1e1e' }}>
-              <SectionHeader title="Top Images by Caption Performance" subtitle="ranked by average net score of their captions" />
-            </div>
-            {stats?.topImages.map((img, idx) => (
-              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1.25rem', borderBottom: idx < (stats.topImages.length - 1) ? '1px solid #1a1a1a' : 'none' }}>
-                <div style={{ fontSize: '0.9rem', fontWeight: 700, color: idx === 0 ? '#febc2e' : '#2a2a2a', fontFamily: "'IBM Plex Mono', monospace", width: 20, textAlign: 'center', flexShrink: 0 }}>{idx + 1}</div>
-                {img.image_url && (
-                  <img src={img.image_url} alt="" style={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 4, flexShrink: 0, border: '1px solid #2a2a2a' }} />
-                )}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: '0.75rem', color: '#888', margin: '0 0 4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'IBM Plex Mono', monospace" }}>{img.image_description || 'No description'}</p>
-                  <Pill color="#60a5fa">{img.caption_count} caption{img.caption_count !== 1 ? 's' : ''}</Pill>
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontSize: '0.68rem', color: '#444', fontFamily: "'IBM Plex Mono', monospace", marginBottom: 2 }}>avg net</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: img.avg_net >= 0 ? '#4ade80' : '#f87171', fontFamily: "'IBM Plex Mono', monospace" }}>
-                    {img.avg_net >= 0 ? '+' : ''}{img.avg_net.toFixed(1)}
-                  </div>
-                </div>
-              </div>
-            ))}
-            {(!stats?.topImages || stats.topImages.length === 0) && (
-              <div style={{ padding: '2rem', textAlign: 'center', color: '#333', fontSize: '0.78rem', fontFamily: "'IBM Plex Mono', monospace" }}>No image data yet</div>
-            )}
-          </Card>
-        </div>
-      )}
-
-      {/* ── TRENDS ── */}
-      {activeTab === 'trends' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <Card>
-            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e1e1e' }}>
-              <SectionHeader title="Daily Voting Activity" subtitle="last 14 days" />
-            </div>
-            <div style={{ padding: '1.25rem' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: 120, marginBottom: '0.75rem' }}>
-                {stats?.dailyVotes.map((d, i) => (
-                  <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, height: '100%', justifyContent: 'flex-end' }}>
-                    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <div style={{ width: '100%', height: Math.max(2, (d.upvotes / maxDaily) * 100), background: '#4ade8066', borderRadius: '2px 2px 0 0', minHeight: d.upvotes > 0 ? 2 : 0 }} />
-                      <div style={{ width: '100%', height: Math.max(2, (d.downvotes / maxDaily) * 100), background: '#f8717166', borderRadius: '0 0 2px 2px', minHeight: d.downvotes > 0 ? 2 : 0 }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {stats?.dailyVotes.map((d, i) => (
-                  <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: '0.55rem', color: '#333', fontFamily: "'IBM Plex Mono', monospace" }}>
-                    {i % 2 === 0 ? d.date.slice(5) : ''}
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', justifyContent: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 10, height: 10, background: '#4ade8066', borderRadius: 2 }} /><span style={{ fontSize: '0.68rem', color: '#555', fontFamily: "'IBM Plex Mono', monospace" }}>upvotes</span></div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}><div style={{ width: 10, height: 10, background: '#f8717166', borderRadius: 2 }} /><span style={{ fontSize: '0.68rem', color: '#555', fontFamily: "'IBM Plex Mono', monospace" }}>downvotes</span></div>
-              </div>
-            </div>
-          </Card>
-
-          <Card>
-            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #1e1e1e' }}>
-              <SectionHeader title="Daily Breakdown" subtitle="votes per day detail" />
-            </div>
-            <div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', padding: '0.5rem 1.25rem', borderBottom: '1px solid #1e1e1e' }}>
-                {['Date', 'Total', 'Up', 'Down'].map(h => (
-                  <div key={h} style={{ fontSize: '0.65rem', color: '#333', fontFamily: "'IBM Plex Mono', monospace", textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</div>
-                ))}
-              </div>
-              {[...(stats?.dailyVotes ?? [])].reverse().map((d, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', padding: '0.6rem 1.25rem', borderBottom: i < 13 ? '1px solid #141414' : 'none', background: i % 2 === 0 ? 'transparent' : '#0a0a0a' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#666', fontFamily: "'IBM Plex Mono', monospace" }}>{d.date}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#888', fontFamily: "'IBM Plex Mono', monospace" }}>{d.votes}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#4ade80', fontFamily: "'IBM Plex Mono', monospace" }}>↑{d.upvotes}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#f87171', fontFamily: "'IBM Plex Mono', monospace" }}>↓{d.downvotes}</div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      )}
     </AdminShell>
   );
 }
