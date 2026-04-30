@@ -1,4 +1,8 @@
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 import AdminShell from '../AdminShell';
 
 const BLUE   = '#378ADD';
@@ -9,56 +13,25 @@ const GRAY   = '#888780';
 const PURPLE = '#7F77DD';
 const GREEN  = '#639922';
 
-// ─── Data fetching ────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-async function getStats(supabase: any) {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-  const [
-    { count: totalUsers },
-    { count: totalImages },
-    { count: totalCaptions },
-    { count: captionRequests },
-    { count: publicCaptions },
-    { count: featuredCaptions },
-    { count: llmResponses },
-    { data: topCaptions },
-    { data: flavorMix },
-    { data: recentCaptions },
-  ] = await Promise.all([
-    supabase.from('profiles').select('*', { count: 'exact', head: true }),
-    supabase.from('images').select('*', { count: 'exact', head: true }),
-    supabase.from('captions').select('*', { count: 'exact', head: true }),
-    supabase.from('caption_requests').select('*', { count: 'exact', head: true }),
-    supabase.from('captions').select('*', { count: 'exact', head: true }).eq('is_public', true),
-    supabase.from('captions').select('*', { count: 'exact', head: true }).eq('is_featured', true),
-    supabase.from('llm_model_responses').select('*', { count: 'exact', head: true }),
-    supabase
-      .from('captions')
-      .select('content, like_count')
-      .order('like_count', { ascending: false })
-      .limit(5),
-    supabase
-      .from('humor_flavor_mix')
-      .select('humor_flavor_id, caption_count, humor_flavors(slug, description)'),
-    supabase
-      .from('captions')
-      .select('created_datetime_utc, is_public')
-      .gte('created_datetime_utc', sevenDaysAgo.toISOString()),
-  ]);
-
-  return {
-    totalUsers, totalImages, totalCaptions, captionRequests,
-    publicCaptions, featuredCaptions, llmResponses,
-    topCaptions, flavorMix, recentCaptions,
-  };
+interface DashboardStats {
+  totalUsers: number;
+  totalImages: number;
+  totalCaptions: number;
+  captionRequests: number;
+  publicCaptions: number;
+  featuredCaptions: number;
+  llmResponses: number;
+  topCaptions: { content: string; like_count: number }[];
+  flavorMix: { humor_flavor_id: number; caption_count: number; humor_flavors: { slug: string; description: string } | null }[];
+  dailyData: { label: string; pub: number; priv: number }[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function pct(part: number | null, total: number | null): string {
-  if (!total || !part) return '0%';
+function pct(part: number, total: number): string {
+  if (!total) return '0%';
   return Math.round((part / total) * 100) + '%';
 }
 
@@ -66,16 +39,15 @@ function truncate(str: string, max = 52): string {
   return str && str.length > max ? str.slice(0, max) + '…' : (str ?? '');
 }
 
-function buildDailyData(recentCaptions: any[]) {
+function buildDailyData(rows: { created_datetime_utc: string; is_public: boolean }[]) {
   const dayMap: Record<string, { label: string; pub: number; priv: number }> = {};
   for (let i = 6; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     const key = d.toISOString().slice(0, 10);
-    const label = d.toLocaleDateString('en-US', { weekday: 'short' });
-    dayMap[key] = { label, pub: 0, priv: 0 };
+    dayMap[key] = { label: d.toLocaleDateString('en-US', { weekday: 'short' }), pub: 0, priv: 0 };
   }
-  (recentCaptions ?? []).forEach((row: any) => {
+  rows.forEach(row => {
     const key = new Date(row.created_datetime_utc).toISOString().slice(0, 10);
     if (dayMap[key]) {
       if (row.is_public) dayMap[key].pub++;
@@ -88,10 +60,7 @@ function buildDailyData(recentCaptions: any[]) {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatCard({ label, value, sub, color = TEAL }: {
-  label: string;
-  value: number | null | undefined;
-  sub?: string;
-  color?: string;
+  label: string; value: number | string; sub?: string; color?: string;
 }) {
   return (
     <div style={{
@@ -104,7 +73,7 @@ function StatCard({ label, value, sub, color = TEAL }: {
     }}>
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: color }} />
       <div style={{ fontSize: 26, fontWeight: 500, color: 'var(--color-text-primary)', marginBottom: 4, fontVariantNumeric: 'tabular-nums' }}>
-        {value?.toLocaleString() ?? '—'}
+        {typeof value === 'number' ? value.toLocaleString() : value}
       </div>
       <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{label}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--color-text-tertiary)', marginTop: 3 }}>{sub}</div>}
@@ -113,9 +82,7 @@ function StatCard({ label, value, sub, color = TEAL }: {
 }
 
 function SectionCard({ title, badge, children }: {
-  title: string;
-  badge?: string;
-  children: React.ReactNode;
+  title: string; badge?: string; children: React.ReactNode;
 }) {
   return (
     <div style={{
@@ -126,14 +93,10 @@ function SectionCard({ title, badge, children }: {
       <div style={{
         padding: '14px 18px',
         borderBottom: '0.5px solid var(--color-border-tertiary)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
         <h2 style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)', margin: 0 }}>{title}</h2>
-        {badge && (
-          <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', letterSpacing: '0.05em' }}>{badge}</span>
-        )}
+        {badge && <span style={{ fontSize: 11, color: 'var(--color-text-tertiary)', letterSpacing: '0.05em' }}>{badge}</span>}
       </div>
       {children}
     </div>
@@ -172,11 +135,8 @@ function PipelineBar({ items }: { items: { label: string; value: number; color: 
     <div>
       <div style={{ display: 'flex', height: 28, borderRadius: 6, overflow: 'hidden', marginBottom: 14 }}>
         {items.map(({ label, value, color }) => (
-          <div
-            key={label}
-            title={`${label}: ${value.toLocaleString()}`}
-            style={{ width: `${Math.max((value / total) * 100, 1.5)}%`, background: color, height: '100%', minWidth: 4 }}
-          />
+          <div key={label} title={`${label}: ${value.toLocaleString()}`}
+            style={{ width: `${Math.max((value / total) * 100, 1.5)}%`, background: color, height: '100%', minWidth: 4 }} />
         ))}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 20px' }}>
@@ -196,57 +156,145 @@ function PipelineBar({ items }: { items: { label: string; value: number; color: 
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default async function DashboardPage() {
-  const supabase = createServerSupabaseClient();
-  const stats = await getStats(supabase);
+export default function DashboardPage() {
+  const router = useRouter();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const dailyData = buildDailyData(stats.recentCaptions ?? []);
-  const topLikes = Math.max(...(stats.topCaptions ?? []).map((c: any) => c.like_count ?? 0), 1);
-  const maxFlavorCount = Math.max(...(stats.flavorMix ?? []).map((f: any) => f.caption_count ?? 0), 1);
+  useEffect(() => {
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { router.push('/'); return; }
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_superadmin')
+        .eq('id', session.user.id)
+        .single();
+      if (!profile?.is_superadmin) { router.push('/'); return; }
+      await fetchStats();
+    };
+    init();
+  }, [router]);
+
+  const fetchStats = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+      const [
+        { count: totalUsers },
+        { count: totalImages },
+        { count: totalCaptions },
+        { count: captionRequests },
+        { count: publicCaptions },
+        { count: featuredCaptions },
+        { count: llmResponses },
+        { data: topCaptions },
+        { data: flavorMix },
+        { data: recentCaptions },
+      ] = await Promise.all([
+        supabase.from('profiles').select('*', { count: 'exact', head: true }),
+        supabase.from('images').select('*', { count: 'exact', head: true }),
+        supabase.from('captions').select('*', { count: 'exact', head: true }),
+        supabase.from('caption_requests').select('*', { count: 'exact', head: true }),
+        supabase.from('captions').select('*', { count: 'exact', head: true }).eq('is_public', true),
+        supabase.from('captions').select('*', { count: 'exact', head: true }).eq('is_featured', true),
+        supabase.from('llm_model_responses').select('*', { count: 'exact', head: true }),
+        supabase.from('captions').select('content, like_count').order('like_count', { ascending: false }).limit(5),
+        supabase.from('humor_flavor_mix').select('humor_flavor_id, caption_count, humor_flavors(slug, description)'),
+        supabase.from('captions').select('created_datetime_utc, is_public').gte('created_datetime_utc', sevenDaysAgo.toISOString()),
+      ]);
+
+      setStats({
+        totalUsers: totalUsers ?? 0,
+        totalImages: totalImages ?? 0,
+        totalCaptions: totalCaptions ?? 0,
+        captionRequests: captionRequests ?? 0,
+        publicCaptions: publicCaptions ?? 0,
+        featuredCaptions: featuredCaptions ?? 0,
+        llmResponses: llmResponses ?? 0,
+        topCaptions: topCaptions ?? [],
+        flavorMix: (flavorMix ?? []) as any,
+        dailyData: buildDailyData(recentCaptions ?? []),
+      });
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) return (
+    <AdminShell active="dashboard">
+      <div style={{ color: 'var(--color-text-tertiary)', fontSize: 13, padding: '2rem 0' }}>
+        Loading…
+      </div>
+    </AdminShell>
+  );
+
+  const s = stats!;
+  const topLikes = Math.max(...s.topCaptions.map(c => c.like_count ?? 0), 1);
+  const maxFlavorCount = Math.max(...s.flavorMix.map(f => f.caption_count ?? 0), 1);
   const flavorColors = [TEAL, BLUE, AMBER, CORAL, PURPLE, GRAY];
 
   return (
-    <AdminShell>
+    <AdminShell active="dashboard">
       <div style={{ padding: '28px 32px', maxWidth: 1200, fontFamily: 'var(--font-sans)' }}>
 
         {/* Header */}
-        <div style={{ marginBottom: 28 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
-            Dashboard
-          </h1>
-          <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
-            Humor caption pipeline — system overview
-          </p>
+        <div style={{ marginBottom: 28, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ fontSize: 22, fontWeight: 500, color: 'var(--color-text-primary)', margin: '0 0 4px' }}>
+              Dashboard
+            </h1>
+            <p style={{ fontSize: 13, color: 'var(--color-text-secondary)', margin: 0 }}>
+              Humor caption pipeline — system overview
+            </p>
+          </div>
+          <button onClick={fetchStats} style={{
+            background: 'transparent',
+            border: '0.5px solid var(--color-border-secondary)',
+            color: 'var(--color-text-secondary)',
+            padding: '6px 14px',
+            borderRadius: 'var(--border-radius-md)',
+            fontSize: 12,
+            cursor: 'pointer',
+          }}>
+            ↻ Refresh
+          </button>
         </div>
+
+        {error && (
+          <div style={{
+            background: 'var(--color-background-danger)',
+            border: '0.5px solid var(--color-border-danger)',
+            borderRadius: 'var(--border-radius-md)',
+            color: 'var(--color-text-danger)',
+            padding: '10px 14px', fontSize: 13, marginBottom: '1.5rem',
+          }}>
+            {error}
+          </div>
+        )}
 
         {/* Stat grid — row 1 */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 12 }}>
-          <StatCard label="Total users"         value={stats.totalUsers}      color={BLUE} />
-          <StatCard label="Images"              value={stats.totalImages}     color={TEAL} />
-          <StatCard
-            label="Captions generated"
-            value={stats.totalCaptions}
-            sub={`${pct(stats.publicCaptions, stats.totalCaptions)} public`}
-            color={GREEN}
-          />
-          <StatCard label="Caption requests"    value={stats.captionRequests} color={AMBER} />
+          <StatCard label="Total users"         value={s.totalUsers}       color={BLUE} />
+          <StatCard label="Images"              value={s.totalImages}      color={TEAL} />
+          <StatCard label="Captions generated"  value={s.totalCaptions}    color={GREEN}
+            sub={`${pct(s.publicCaptions, s.totalCaptions)} public`} />
+          <StatCard label="Caption requests"    value={s.captionRequests}  color={AMBER} />
         </div>
 
         {/* Stat grid — row 2 */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 28 }}>
-          <StatCard label="LLM API calls"       value={stats.llmResponses}    color={PURPLE} />
-          <StatCard
-            label="Featured captions"
-            value={stats.featuredCaptions}
-            sub={`${pct(stats.featuredCaptions, stats.totalCaptions)} of total`}
-            color={CORAL}
-          />
-          <StatCard label="Public captions"     value={stats.publicCaptions}  color={GREEN} />
-          <StatCard
-            label="Private captions"
-            value={(stats.totalCaptions ?? 0) - (stats.publicCaptions ?? 0)}
-            color={GRAY}
-          />
+          <StatCard label="LLM API calls"       value={s.llmResponses}     color={PURPLE} />
+          <StatCard label="Featured captions"   value={s.featuredCaptions} color={CORAL}
+            sub={`${pct(s.featuredCaptions, s.totalCaptions)} of total`} />
+          <StatCard label="Public captions"     value={s.publicCaptions}   color={GREEN} />
+          <StatCard label="Private captions"    value={s.totalCaptions - s.publicCaptions} color={GRAY} />
         </div>
 
         {/* Middle row */}
@@ -261,17 +309,14 @@ export default async function DashboardPage() {
                 <span style={{ width: 8, height: 8, borderRadius: 2, background: GRAY, display: 'inline-block' }} />Private
               </span>
             </div>
-            <VBarGroup data={dailyData} />
+            <VBarGroup data={s.dailyData} />
             <div style={{ height: 12 }} />
           </SectionCard>
 
           <SectionCard title="Top captions by likes" badge="TOP 5">
-            {(stats.topCaptions ?? []).map((c: any, i: number) => (
+            {s.topCaptions.map((c, i) => (
               <div key={i} style={{
-                padding: '10px 18px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
+                padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 10,
                 borderBottom: i < 4 ? '0.5px solid var(--color-border-tertiary)' : 'none',
               }}>
                 <span style={{ fontSize: 11, color: i === 0 ? CORAL : 'var(--color-text-tertiary)', width: 18, flexShrink: 0 }}>
@@ -282,12 +327,7 @@ export default async function DashboardPage() {
                     {truncate(c.content ?? '(no content)')}
                   </div>
                   <div style={{ height: 3, background: 'var(--color-background-secondary)', borderRadius: 2 }}>
-                    <div style={{
-                      height: '100%',
-                      width: `${((c.like_count ?? 0) / topLikes) * 100}%`,
-                      background: CORAL,
-                      borderRadius: 2,
-                    }} />
+                    <div style={{ height: '100%', width: `${((c.like_count ?? 0) / topLikes) * 100}%`, background: CORAL, borderRadius: 2 }} />
                   </div>
                 </div>
                 <span style={{ fontSize: 12, color: CORAL, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
@@ -302,16 +342,12 @@ export default async function DashboardPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
           <SectionCard title="Active humor mix" badge="FLAVOR CONFIG">
-            {(stats.flavorMix ?? []).length === 0 && (
-              <div style={{ padding: 20, fontSize: 13, color: 'var(--color-text-tertiary)' }}>
-                No flavor mix configured
-              </div>
+            {s.flavorMix.length === 0 && (
+              <div style={{ padding: 20, fontSize: 13, color: 'var(--color-text-tertiary)' }}>No flavor mix configured</div>
             )}
-            {(stats.flavorMix ?? []).map((f: any, i: number) => (
+            {s.flavorMix.map((f, i) => (
               <div key={f.humor_flavor_id} style={{
-                borderBottom: i < (stats.flavorMix?.length ?? 0) - 1
-                  ? '0.5px solid var(--color-border-tertiary)'
-                  : 'none',
+                borderBottom: i < s.flavorMix.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none',
               }}>
                 <div style={{ padding: '8px 18px 4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                   <div style={{ minWidth: 0 }}>
@@ -325,24 +361,14 @@ export default async function DashboardPage() {
                     )}
                   </div>
                   <span style={{
-                    fontSize: 12,
-                    color: flavorColors[i % flavorColors.length],
+                    fontSize: 12, color: flavorColors[i % flavorColors.length],
                     border: `0.5px solid ${flavorColors[i % flavorColors.length]}`,
-                    borderRadius: 4,
-                    padding: '2px 8px',
-                    flexShrink: 0,
-                  }}>
-                    ×{f.caption_count}
-                  </span>
+                    borderRadius: 4, padding: '2px 8px', flexShrink: 0,
+                  }}>×{f.caption_count}</span>
                 </div>
                 <div style={{ padding: '0 18px 8px' }}>
                   <div style={{ height: 3, background: 'var(--color-background-secondary)', borderRadius: 2 }}>
-                    <div style={{
-                      height: '100%',
-                      width: `${((f.caption_count ?? 0) / maxFlavorCount) * 100}%`,
-                      background: flavorColors[i % flavorColors.length],
-                      borderRadius: 2,
-                    }} />
+                    <div style={{ height: '100%', width: `${((f.caption_count ?? 0) / maxFlavorCount) * 100}%`, background: flavorColors[i % flavorColors.length], borderRadius: 2 }} />
                   </div>
                 </div>
               </div>
@@ -352,11 +378,11 @@ export default async function DashboardPage() {
           <SectionCard title="Pipeline conversion">
             <div style={{ padding: '16px 18px' }}>
               <PipelineBar items={[
-                { label: 'Requests',  value: stats.captionRequests ?? 0,  color: BLUE },
-                { label: 'LLM calls', value: stats.llmResponses ?? 0,     color: PURPLE },
-                { label: 'Captions',  value: stats.totalCaptions ?? 0,    color: GREEN },
-                { label: 'Public',    value: stats.publicCaptions ?? 0,   color: TEAL },
-                { label: 'Featured',  value: stats.featuredCaptions ?? 0, color: CORAL },
+                { label: 'Requests',  value: s.captionRequests,  color: BLUE },
+                { label: 'LLM calls', value: s.llmResponses,     color: PURPLE },
+                { label: 'Captions',  value: s.totalCaptions,    color: GREEN },
+                { label: 'Public',    value: s.publicCaptions,   color: TEAL },
+                { label: 'Featured',  value: s.featuredCaptions, color: CORAL },
               ]} />
             </div>
           </SectionCard>
