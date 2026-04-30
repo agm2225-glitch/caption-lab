@@ -19,8 +19,32 @@ export async function GET(request: Request) {
         },
       }
     )
-    await supabase.auth.exchangeCodeForSession(code)
+
+    const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+    if (error) {
+      return NextResponse.redirect(`${origin}/admin/access-denied?reason=auth`)
+    }
+
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+      return NextResponse.redirect(`${origin}/admin/access-denied?reason=auth`)
+    }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_superadmin')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.is_superadmin) {
+      await supabase.auth.signOut()
+      return NextResponse.redirect(`${origin}/admin/access-denied?reason=unauthorized`)
+    }
+
+    return NextResponse.redirect(`${origin}/admin/dashboard`)
   }
 
-  return NextResponse.redirect(`${origin}/admin/dashboard`)
+  return NextResponse.redirect(`${origin}/admin/access-denied?reason=missing_code`)
 }
