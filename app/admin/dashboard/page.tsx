@@ -190,8 +190,9 @@ export default function CaptionStats() {
       console.log('votes:', votes);
       console.log('error:', error);
       console.log('count:', votes?.length);
-    } finally {
-      setLoading(false);
+      } catch (e) {
+          console.log('catch:', e);
+      } finally {
     }
   };
 
