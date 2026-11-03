@@ -7,12 +7,16 @@ import AdminShell from '../AdminShell';
 
 interface Caption {
   id: string;
-  content: string;
+  caption_text: string | null;
+  content: string | null;
+  image_url: string | null;
+  image_description: string | null;
   is_public: boolean;
   is_featured: boolean;
   like_count: number;
-  created_datetime_utc: string;
-  images: { url: string; image_description: string } | null;
+  flavor: string | null;
+  created_datetime_utc: string | null;
+  created_at: string;
 }
 
 const AccessDenied = () => {
@@ -51,17 +55,21 @@ export default function CaptionsPage() {
 
   const fetchCaptions = async () => {
     setLoading(true);
-    const { data } = await supabase
+    // Queries captions directly without trying to join a non-existent images table
+    const { data, error } = await supabase
       .from('captions')
-      .select('id, content, is_public, is_featured, like_count, created_datetime_utc, images(url, image_description)')
-      .order('created_datetime_utc', { ascending: false });
-    setCaptions((data as unknown as Caption[]) || []);
+      .select('id, caption_text, content, image_url, image_description, is_public, is_featured, like_count, flavor, created_datetime_utc, created_at')
+      .order('created_at', { ascending: false });
+
+    if (error) console.error("Fetch captions error:", error.message);
+    setCaptions(data || []);
     setLoading(false);
   };
 
-  const filtered = captions.filter(c =>
-    c.content?.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = captions.filter(c => {
+    const textToSearch = c.content || c.caption_text || '';
+    return textToSearch.toLowerCase().includes(search.toLowerCase());
+  });
 
   if (accessDenied) return <AccessDenied />;
 
@@ -93,30 +101,37 @@ export default function CaptionsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(c => (
-                <tr key={c.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                  <td style={{ padding: '0.75rem 1rem' }}>
-                    {c.images?.url
-                      ? <img src={c.images.url} alt="" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 3, border: '1px solid #2a2a2a' }} />
-                      : <div style={{ width: 48, height: 36, background: '#1a1a1a', borderRadius: 3 }} />}
-                  </td>
-                  <td style={{ padding: '0.75rem 1rem', fontSize: '0.78rem', color: '#aaa', maxWidth: 320 }}>
-                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: 'italic' }}>"{c.content}"</div>
-                  </td>
-                  <td style={{ padding: '0.75rem 1rem' }}>
-                    <div style={{ display: 'flex', gap: '0.4rem' }}>
-                      {c.is_public && <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', background: '#4ade8022', color: '#4ade80', borderRadius: 3, border: '1px solid #4ade8044' }}>public</span>}
-                      {c.is_featured && <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', background: '#febc2e22', color: '#febc2e', borderRadius: 3, border: '1px solid #febc2e44' }}>featured</span>}
-                    </div>
-                  </td>
-                  <td style={{ padding: '0.75rem 1rem', fontSize: '0.78rem', color: '#f472b6', fontFamily: "'IBM Plex Mono', monospace" }}>
-                    {c.like_count ?? 0}
-                  </td>
-                  <td style={{ padding: '0.75rem 1rem', fontSize: '0.72rem', color: '#555' }}>
-                    {c.created_datetime_utc ? new Date(c.created_datetime_utc).toLocaleDateString() : '—'}
-                  </td>
-                </tr>
-              ))}
+              {filtered.map(c => {
+                const captionContent = c.content || c.caption_text;
+                const createdDate = c.created_datetime_utc || c.created_at;
+
+                return (
+                  <tr key={c.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                    <td style={{ padding: '0.75rem 1rem' }}>
+                      {c.image_url
+                        ? <img src={c.image_url} alt="" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 3, border: '1px solid #2a2a2a' }} />
+                        : <div style={{ width: 48, height: 36, background: '#1a1a1a', borderRadius: 3 }} />}
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.78rem', color: '#aaa', maxWidth: 320 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: 'italic' }}>"{captionContent}"</div>
+                      {c.image_description && <div style={{ fontSize: '0.7rem', color: '#555', marginTop: '0.2rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.image_description}</div>}
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem' }}>
+                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        {c.is_public && <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', background: '#4ade8022', color: '#4ade80', borderRadius: 3, border: '1px solid #4ade8044' }}>public</span>}
+                        {c.is_featured && <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', background: '#febc2e22', color: '#febc2e', borderRadius: 3, border: '1px solid #febc2e44' }}>featured</span>}
+                        {c.flavor && <span style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem', background: '#60a5fa22', color: '#60a5fa', borderRadius: 3, border: '1px solid #60a5fa44' }}>{c.flavor}</span>}
+                      </div>
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.78rem', color: '#f472b6', fontFamily: "'IBM Plex Mono', monospace" }}>
+                      {c.like_count ?? 0}
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem', fontSize: '0.72rem', color: '#555' }}>
+                      {createdDate ? new Date(createdDate).toLocaleDateString() : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
           {filtered.length === 0 && <div style={{ padding: '2rem', textAlign: 'center', color: '#444', fontSize: '0.82rem' }}>No captions found</div>}

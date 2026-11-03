@@ -24,9 +24,9 @@ const NAV_GROUPS = [
   {
     label: 'HUMOR',
     items: [
-      { key: 'humor-flavors', label: '~/humor-flavors', href: '/admin/humor-flavors' },
-      { key: 'humor-flavor-steps', label: '~/humor-flavor-steps', href: '/admin/humor-flavor-steps' },
-      { key: 'humor-mix', label: '~/humor-mix', href: '/admin/humor-mix' },
+      { key: 'humor-flavors', label: '~/prompt-chains', href: '/admin/humor-flavors' },
+      { key: 'humor-flavor-steps', label: '~/prompt-chain-steps', href: '/admin/humor-flavor-steps' },
+      { key: 'humor-mix', label: '~/prompt-chain-mix', href: '/admin/humor-mix' },
     ],
   },
   {
@@ -34,7 +34,6 @@ const NAV_GROUPS = [
     items: [
       { key: 'llm-providers', label: '~/llm-providers', href: '/admin/llm-providers' },
       { key: 'llm-models', label: '~/llm-models', href: '/admin/llm-models' },
-      { key: 'llm-prompt-chains', label: '~/llm-prompt-chains', href: '/admin/llm-prompt-chains' },
       { key: 'llm-responses', label: '~/llm-responses', href: '/admin/llm-responses' },
     ],
   },
@@ -77,7 +76,7 @@ export default function AdminShell({ children, active }: { children: React.React
         <aside style={{ width: 220, background: '#0d0d0d', borderRight: '1px solid #1a1a1a', display: 'flex', flexDirection: 'column', flexShrink: 0, overflowY: 'auto' }}>
           <div style={{ padding: '1.25rem 1rem', borderBottom: '1px solid #1a1a1a' }}>
             <div style={{ fontSize: '0.7rem', color: '#555', marginBottom: '0.2rem' }}>ADMIN PANEL</div>
-            <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#fff' }}>Kinda<span style={{ color: '#4ade80' }}>Crackd</span></div>
+            <div style={{ fontSize: '0.95rem', fontWeight: 600, color: '#fff' }}>Control<span style={{ color: '#4ade80' }}>Lab</span></div>
           </div>
 
           <nav style={{ flex: 1, padding: '0.5rem 0' }}>

@@ -1,83 +1,110 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import AdminShell from '../AdminShell';
 
-const AD = () => { const r = useRouter(); return <div style={{minHeight:'100vh',background:'#0a0a0a',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'IBM Plex Mono',monospace"}}><div style={{textAlign:'center'}}><div style={{fontSize:'2rem',marginBottom:'1rem'}}>⛔</div><h1 style={{color:'#f87171',marginBottom:'0.5rem',fontSize:'1.2rem'}}>Access Denied</h1><button onClick={()=>{supabase.auth.signOut();r.push('/');}} style={{background:'transparent',border:'1px solid #2a2a2a',color:'#888',padding:'0.5rem 1rem',borderRadius:4,fontFamily:"'IBM Plex Mono',monospace",fontSize:'0.78rem',cursor:'pointer'}}>$ sign_out</button></div></div>; };
+interface ChainMixItem {
+  slug: string;
+  count: number;
+  description: string;
+}
 
-export default function HumorMixPage() {
+const AccessDenied = () => {
   const router = useRouter();
-  const [rows, setRows] = useState<any[]>([]);
-  const [flavors, setFlavors] = useState<any[]>([]);
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0a0a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'IBM Plex Mono', monospace", color: '#e0e0e0' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>⛔</div>
+        <h1 style={{ color: '#f87171', marginBottom: '0.5rem', fontSize: '1.2rem' }}>Access Denied</h1>
+        <p style={{ color: '#555', fontSize: '0.82rem', marginBottom: '1.5rem' }}>Superadmin required.</p>
+        <button onClick={() => { supabase.auth.signOut(); router.push('/'); }} style={{ background: 'transparent', border: '1px solid #2a2a2a', color: '#888', padding: '0.5rem 1rem', borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', cursor: 'pointer' }}>
+          $ sign_out
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default function PromptChainMixPage() {
+  const router = useRouter();
+  const [mix, setMix] = useState<ChainMixItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessDenied, setAccessDenied] = useState(false);
-  const [editingId, setEditingId] = useState<number|null>(null);
-  const [editVal, setEditVal] = useState('');
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const init = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.push('/'); return; }
-      const { data: p } = await supabase.from('profiles').select('is_superadmin').eq('id', session.user.id).single();
-      if (!p?.is_superadmin) { setAccessDenied(true); setLoading(false); return; }
-      const [{ data: mix }, { data: fl }] = await Promise.all([
-        supabase.from('humor_flavor_mix').select('*').order('id'),
-        supabase.from('humor_flavors').select('id, slug'),
-      ]);
-      setRows(mix || []);
-      setFlavors(fl || []);
-      setLoading(false);
+      const { data: profile } = await supabase.from('profiles').select('is_superadmin').eq('id', session.user.id).single();
+      if (!profile?.is_superadmin) { setAccessDenied(true); setLoading(false); return; }
+      fetchMix();
     };
     init();
   }, [router]);
 
-  const flavorName = (id: number) => flavors.find(f => f.id === id)?.slug || id;
+  const fetchMix = async () => {
+    setLoading(true);
+    const [{ data: rawCaptions }, { data: definedChains }] = await Promise.all([
+      supabase.from('captions').select('flavor'),
+      supabase.from('humor_flavors').select('slug, description'),
+    ]);
 
-  const handleUpdate = async (id: number) => {
-    setSaving(true);
-    await supabase.from('humor_flavor_mix').update({ caption_count: parseInt(editVal) }).eq('id', id);
-    const { data } = await supabase.from('humor_flavor_mix').select('*').order('id');
-    setRows(data || []);
-    setEditingId(null);
-    setSaving(false);
+    const counts: Record<string, number> = {};
+    (rawCaptions || []).forEach(c => {
+      const key = c.flavor || 'default';
+      counts[key] = (counts[key] || 0) + 1;
+    });
+
+    const mixList = Object.entries(counts).map(([slug, count]) => {
+      const match = (definedChains || []).find(f => f.slug === slug);
+      return {
+        slug,
+        count,
+        description: match?.description || `${slug} prompt chain strategy`,
+      };
+    });
+
+    setMix(mixList);
+    setLoading(false);
   };
 
-  if (accessDenied) return <AD />;
+  if (accessDenied) return <AccessDenied />;
+
+  const total = mix.reduce((sum, item) => sum + item.count, 0);
 
   return (
-    <AdminShell active="humor-mix">
-      <div style={{marginBottom:'1.5rem'}}><h1 style={{fontSize:'1.3rem',fontWeight:600,color:'#fff',marginBottom:'0.25rem'}}>Humor Mix</h1><p style={{fontSize:'0.78rem',color:'#555'}}>{rows.length} entries · READ / UPDATE caption_count</p></div>
-      {loading ? <div style={{color:'#555',fontSize:'0.82rem'}}>Loading...</div> : (
-        <div style={{background:'#111',border:'1px solid #1e1e1e',borderRadius:8,overflow:'hidden'}}>
-          <table>
-            <thead><tr style={{background:'#0d0d0d'}}>
-              {['ID','Humor Flavor','Caption Count','Created','Actions'].map(h=><th key={h} style={{padding:'0.75rem 1rem',textAlign:'left',fontSize:'0.7rem',color:'#555',textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:500}}>{h}</th>)}
-            </tr></thead>
-            <tbody>{rows.map(r=>(
-              <tr key={r.id} style={{borderBottom:'1px solid #1a1a1a'}}>
-                <td style={{padding:'0.75rem 1rem',fontSize:'0.78rem',color:'#febc2e'}}>{r.id}</td>
-                <td style={{padding:'0.75rem 1rem',fontSize:'0.78rem',color:'#4ade80'}}>{flavorName(r.humor_flavor_id)}</td>
-                <td style={{padding:'0.75rem 1rem',fontSize:'0.78rem',color:'#e0e0e0'}}>
-                  {editingId===r.id ? (
-                    <input value={editVal} onChange={e=>setEditVal(e.target.value)} style={{background:'#0a0a0a',border:'1px solid #4ade80',borderRadius:4,padding:'0.25rem 0.5rem',color:'#e0e0e0',fontFamily:"'IBM Plex Mono',monospace",fontSize:'0.78rem',width:80}} />
-                  ) : r.caption_count}
-                </td>
-                <td style={{padding:'0.75rem 1rem',fontSize:'0.72rem',color:'#555'}}>{r.created_datetime_utc?new Date(r.created_datetime_utc).toLocaleDateString():'—'}</td>
-                <td style={{padding:'0.75rem 1rem'}}>
-                  {editingId===r.id ? (
-                    <div style={{display:'flex',gap:'0.5rem'}}>
-                      <button onClick={()=>handleUpdate(r.id)} disabled={saving} style={{fontSize:'0.7rem',padding:'0.25rem 0.6rem',background:'#4ade8022',border:'1px solid #4ade8044',color:'#4ade80',borderRadius:3,fontFamily:"'IBM Plex Mono',monospace",cursor:'pointer'}}>{saving?'...':'save'}</button>
-                      <button onClick={()=>setEditingId(null)} style={{fontSize:'0.7rem',padding:'0.25rem 0.6rem',background:'transparent',border:'1px solid #2a2a2a',color:'#888',borderRadius:3,fontFamily:"'IBM Plex Mono',monospace",cursor:'pointer'}}>cancel</button>
-                    </div>
-                  ) : (
-                    <button onClick={()=>{setEditingId(r.id);setEditVal(String(r.caption_count));}} style={{fontSize:'0.7rem',padding:'0.25rem 0.6rem',background:'transparent',border:'1px solid #2a2a2a',color:'#888',borderRadius:3,fontFamily:"'IBM Plex Mono',monospace",cursor:'pointer'}}>edit</button>
-                  )}
-                </td>
-              </tr>
-            ))}</tbody>
-          </table>
+    <AdminShell active="prompt-chain-mix">
+      <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h1 style={{ fontSize: '1.3rem', fontWeight: 600, color: '#fff', marginBottom: '0.25rem' }}>Prompt Chain Mix</h1>
+          <p style={{ fontSize: '0.78rem', color: '#555' }}>Active distribution of generated prompt chains</p>
+        </div>
+        <button onClick={fetchMix} style={{ background: 'transparent', border: '1px solid #2a2a2a', color: '#888', padding: '0.5rem 1rem', borderRadius: 4, fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.78rem', cursor: 'pointer' }}>
+          ↻ refresh
+        </button>
+      </div>
+
+      {loading ? (
+        <div style={{ color: '#555', fontSize: '0.82rem' }}>Loading prompt chain mix...</div>
+      ) : (
+        <div style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 8, padding: '1.25rem' }}>
+          {mix.map(item => {
+            const pct = total > 0 ? Math.round((item.count / total) * 100) : 0;
+            return (
+              <div key={item.slug} style={{ marginBottom: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                  <span style={{ color: '#4ade80', fontSize: '0.85rem', fontFamily: "'IBM Plex Mono', monospace" }}>{item.slug}</span>
+                  <span style={{ color: '#888', fontSize: '0.78rem', fontFamily: "'IBM Plex Mono', monospace" }}>{item.count} captions ({pct}%)</span>
+                </div>
+                <div style={{ height: 6, background: '#1a1a1a', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${pct}%`, background: '#60a5fa', borderRadius: 3 }} />
+                </div>
+              </div>
+            );
+          })}
+          {mix.length === 0 && <div style={{ color: '#444', fontSize: '0.82rem', textAlign: 'center', padding: '1rem' }}>No active mix data available</div>}
         </div>
       )}
     </AdminShell>
